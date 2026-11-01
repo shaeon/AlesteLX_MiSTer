@@ -1,0 +1,57 @@
+# Aleste LX para MiSTer
+#
+# rtl/core: nucleo (copia del core aleste520ex con los perifericos LX en
+# rtl/core/lx); rtl/hww: ficheros de aleste-lx-fpga-sv (hww) que usa.
+# Las tablas .mem de la paleta ($readmemh) las copia rtl/pre_flow.tcl a la
+# carpeta del proyecto antes de cada compilacion.
+
+set_global_assignment -name SDC_FILE AlesteLX.sdc
+set_global_assignment -name SYSTEMVERILOG_FILE AlesteLX.sv
+set_global_assignment -name QIP_FILE rtl/pll_vid.qip
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/native_resync.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/components/reset/reset_controller.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/sdram_wishbone.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/mc6845mod.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/components/video/hdmi_scaler/dual_port_ram.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/components/video/hdmi_scaler/hdmi_scaler.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/cpc_colors.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/components/video/palette/msx_colors.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/color_palette.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/components/video/video_buffer/video_buffer.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/pixel_pipeline.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/systems/aleste_video/wb_arbiter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/systems/aleste_video/address_decoder.sv
+set_global_assignment -name VERILOG_FILE rtl/hww/src/components/cpu/tv80/tv80_core.v
+set_global_assignment -name VERILOG_FILE rtl/hww/src/components/cpu/tv80/tv80_reg.v
+set_global_assignment -name VERILOG_FILE rtl/hww/src/components/cpu/tv80/tv80_alu.v
+set_global_assignment -name VERILOG_FILE rtl/hww/src/components/cpu/tv80/tv80_mcode.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/z80_system.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/components/io/ppi/i8255_wb.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/systems/aleste_system/z80_debug.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/mmu_legacy.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/systems/aleste_system/system_arbiter.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/hww/src/components/interconnect/wishbone/wb_wdt_simple.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/memory_arbiter.sv
+set_global_assignment -name VERILOG_FILE rtl/core/tv80lx.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/mmu_native.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/vga_timing.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/video_ctrl_vga.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/mist_loader.sv
+set_global_assignment -name VERILOG_FILE rtl/core/cpc/UM6845R.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/cpc/cpc_video.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/cpc/kbd_520ex.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/cpc/rtc146818.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/cpc/magic_sound.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/cpc/serial_mouse.sv
+set_global_assignment -name VERILOG_FILE rtl/core/cpc/kempston_mouse.v
+set_global_assignment -name VERILOG_FILE rtl/core/cpc/symbiface_mouse.v
+set_global_assignment -name VERILOG_FILE rtl/core/cpc/multiplay_mouse.v
+set_global_assignment -name VERILOG_FILE rtl/core/cpc/amx_mouse.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/cpc/tzxplayer.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/cpc/u765.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/YM2149.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/lx/lx_sys.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/lx/lx_ms2.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/lx/lx_dma.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/lx/lx_input.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/core/aleste_lx_core.sv

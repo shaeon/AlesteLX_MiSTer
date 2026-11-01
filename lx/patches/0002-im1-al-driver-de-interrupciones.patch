@@ -1,0 +1,20 @@
+--- a/asm/crt0_aleste.asm	2026-11-01 20:41:21.329260685 +0000
++++ b/asm/crt0_aleste.asm	2026-11-01 20:41:21.341651958 +0000
+@@ -1,4 +1,5 @@
+ EXTERN _main
++EXTERN __int_isr      ; despachador del driver de interrupciones (drivers/int)
+ SECTION code_crt_start
+ ; aleste.asm
+ ; z80asm синтаксис
+@@ -13,9 +14,8 @@
+     ; ИЛИ
+     ; defs 0x0038 - $, 0xFF  ; заполнит 0xFF
+     
+-; IM1 прерывание (0x0038)
+-    ei
+-    reti
++; IM1 прерывание (0x0038): al driver de interrupciones (sin driver, ei/reti)
++    jp __int_isr
+     
+ ; Заполняем до 0x0066
+     defs 0x0066 - $

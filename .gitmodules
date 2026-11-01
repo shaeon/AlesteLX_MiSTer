@@ -1,0 +1,3 @@
+[submodule "lx/aleste-xi-bios"]
+	path = lx/aleste-xi-bios
+	url = https://github.com/hww/aleste-xi-bios.git
