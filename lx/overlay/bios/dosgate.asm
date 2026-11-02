@@ -36,6 +36,7 @@ EXTERN __int_lx_dispatch
 
 PUBLIC __dos_exec, __dos_bdos_gate, __dos_bios_gate, __dos_isr_gate, __dos_wboot_gate
 PUBLIC __dos_bdos_vec, __dos_bios_vec, __dos_reg_c, __dos_reg_de, __dos_reg_a
+PUBLIC __dos_xret, __dos_ret_a, __dos_ret_bc, __dos_ret_de, __dos_ret_hl, __dos_reg_hl, __dos_reg_b
 
 SECTION DRV_CODE
 
@@ -86,10 +87,13 @@ __dos_bdos_gate:
     di
     ld (prog_sp), sp
     ld (__dos_reg_de), de
+    ld (__dos_reg_hl), hl
+    ld a, b
+    ld (__dos_reg_b), a
     ld a, c
     ld (__dos_reg_c), a
     or a
-    jr z, __dos_wboot_gate      ; funcion 0: fin del programa
+    jp z, __dos_wboot_gate      ; funcion 0: fin del programa
     ld a, SYS_BANK0             ; mapa del LX-DOS, sin tocar la pila
     out (0xFC), a
     ld a, SYS_BANK1
@@ -114,10 +118,24 @@ gate_back:
     ld a, TPA_BANK2
     out (0xFE), a
     ld sp, (prog_sp)
+    ld a, (__dos_xret)
+    or a
+    jr nz, gate_xret
     ex de, hl
     ld a, l
     ld b, h
     ld de, (__dos_reg_de)       ; DE se conserva (algunos programas lo esperan)
+    ei
+    ret
+; Vuelta con todos los registros (funciones de MSX-DOS que devuelven A, BC,
+; DE y HL a la vez): los deja el LX-DOS en __dos_ret_* y pone __dos_xret
+gate_xret:
+    xor a
+    ld (__dos_xret), a
+    ld bc, (__dos_ret_bc)
+    ld de, (__dos_ret_de)
+    ld hl, (__dos_ret_hl)
+    ld a, (__dos_ret_a)
     ei
     ret
 
@@ -130,7 +148,7 @@ __dos_bios_gate:
     ld (__dos_reg_c), a
     ld a, (__dos_reg_a)
     cp 1
-    jr z, __dos_wboot_gate      ; WBOOT
+    jp z, __dos_wboot_gate      ; WBOOT
     ld a, SYS_BANK0
     out (0xFC), a
     ld a, SYS_BANK1
@@ -181,6 +199,13 @@ __dos_bios_vec: dw 0
 __dos_reg_c:    db 0
 __dos_reg_a:    db 0
 __dos_reg_de:   dw 0
+__dos_reg_hl:   dw 0            ; HL y B del programa (funciones de bloque y absolutas)
+__dos_reg_b:    db 0
+__dos_xret:     db 0
+__dos_ret_a:    db 0
+__dos_ret_bc:   dw 0
+__dos_ret_de:   dw 0
+__dos_ret_hl:   dw 0
 exec_sp:        dw 0
 prog_sp:        dw 0
 isr_sp:         dw 0

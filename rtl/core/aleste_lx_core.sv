@@ -164,6 +164,8 @@ logic       tape_src;                 // cinta: fichero CDT/TZX o entrada de la 
 logic       cmos_we, cmos_clean, rtc_dirty;   // ALESTE.CMO (RAM del reloj en la SD)
 logic [5:0] cmos_addr;
 logic [7:0] cmos_din, cmos_dout;
+logic [5:0] rtcn_idx;                    // reloj en modo nativo (FF0060/61)
+logic       rtcn_ack, rtcn_we;
 logic [7:0] rtc_dout;                 // reloj MC146818
 logic       rtc_drive;
 
@@ -820,9 +822,12 @@ always_ff @(posedge clk_bus) begin
         if (!rtc_seen && mist_rtc[63:56] == 8'h40) begin rtc_set <= 1'b1; rtc_seen <= 1'b1; end
     end
 end
-assign cmos_we   = cmos_busy & cmos_rd & sd_ack & sd_buff_wr & (sd_buff_addr[8:6] == 3'd0);
-assign cmos_addr = sd_buff_addr[5:0];
-assign cmos_din  = sd_buff_dout;
+// La puerta de la RAM del reloj es de la copia de ALESTE.CMO mientras dura, y
+// si no, del modo nativo: FF0060 indice (0-63), FF0061 dato (como en un PC)
+assign cmos_we   = cmos_busy ? (cmos_rd & sd_ack & sd_buff_wr & (sd_buff_addr[8:6] == 3'd0))
+                             : rtcn_we;
+assign cmos_addr = cmos_busy ? sd_buff_addr[5:0] : rtcn_idx;
+assign cmos_din  = cmos_busy ? sd_buff_dout : sys_dat;
 assign sd_lba      = cmos_busy ? 32'd0 : fdc_sd_lba;
 assign sd_rd       = {cmos_req & cmos_rd, cmos_busy ? 2'b00 : fdc_sd_rd};
 assign sd_wr       = {cmos_req & cmos_wr, cmos_busy ? 2'b00 : fdc_sd_wr};
@@ -1003,8 +1008,18 @@ u765 #(.CYCLES(FDC_CYCLES)) fdc (
 // PIC y temporizador (rtl/lx/lx_sys.sv). Solo en modo LX y con la MMU nativa.
 logic [7:0] lx_dat, ms2_dat, dma_dat, kin_dat;
 logic       lx_ack, ms2_ack, ms2_irq, dma_ack, dma_irq, kin_ack, kin_irq;
+// Reloj MC146818 en modo nativo: FF0060 indice, FF0061 dato (la RAM del reloj
+// por su puerta cmos_*, ver abajo). El resto de la pagina 0 es de lx_sys.
+wire rtcn_cs = lx_mode & ~legacy & (sys_adr[23:1] == 23'h7F8030);
+always_ff @(posedge clk_bus) begin
+    rtcn_ack <= bus_req & rtcn_cs & ~rtcn_ack;
+    if (bus_req & rtcn_cs & ~rtcn_ack & sys_we & ~sys_adr[0]) rtcn_idx <= sys_dat[5:0];
+end
+assign rtcn_we = bus_req & rtcn_cs & ~rtcn_ack & sys_we & sys_adr[0] & ~cmos_busy;
+wire [7:0] rtcn_dat = sys_adr[0] ? cmos_dout : {2'b00, rtcn_idx};
+
 `ifdef ALESTE_LX
-wire lx_cs = lx_mode & ~legacy & (sys_adr[23:7] == 17'h1FE00);
+wire lx_cs = lx_mode & ~legacy & (sys_adr[23:7] == 17'h1FE00) & ~rtcn_cs;
 logic [1:0] lx_vbl_s;                         // VBlank del video nativo (clk_pixel) -> clk_bus
 always_ff @(posedge clk_bus) lx_vbl_s <= {lx_vbl_s[0], vga_vblank};
 lx_sys lx_system (
@@ -1119,9 +1134,9 @@ wire leg_none = legacy & (sys_adr[23:16] == 8'hFF) & ~ga_cfg & ~ppi_cs & ~vc_gra
 logic none_ack;
 always_ff @(posedge clk_bus) none_ack <= bus_req & leg_none & ~none_ack;
 
-assign vid_ack            = vc_ack | ga_ack | ppi_ack | none_ack | cv_ack | fdc_ack | mot_ack | ext_ack | usart_ack | ga_rd_ack | ms_ack | cm_ack | lx_ack | ms2_ack | dma_ack | kin_ack;
-assign vid_grant          = vc_grant | (bus_req & (ga_cfg | ppi_cs | leg_none | crtc_cs | ga_pen | fdc_cs | mot_cs | ext_cs | usart_cs | ga_rd | ms_cs | cpcm_cs | lx_cs | ms2_cs | dma_cs | kin_cs));
-assign vid_dat_from_slave = ppi_cs ? ppi_dat : crtc_cs ? cv_dat : fdc_cs ? fdc_dat : usart_cs ? usart_dat : ga_rd ? ga_rd_dat : ms_cs ? ms_dat : cpcm_cs ? cpcm_dat : lx_cs ? lx_dat : ms2_cs ? ms2_dat : dma_cs ? dma_dat : kin_cs ? kin_dat : leg_none ? 8'hFF : vc_dat;
+assign vid_ack            = vc_ack | ga_ack | ppi_ack | none_ack | cv_ack | fdc_ack | mot_ack | ext_ack | usart_ack | ga_rd_ack | ms_ack | cm_ack | lx_ack | ms2_ack | dma_ack | kin_ack | rtcn_ack;
+assign vid_grant          = vc_grant | (bus_req & (ga_cfg | ppi_cs | leg_none | crtc_cs | ga_pen | fdc_cs | mot_cs | ext_cs | usart_cs | ga_rd | ms_cs | cpcm_cs | lx_cs | ms2_cs | dma_cs | kin_cs | rtcn_cs));
+assign vid_dat_from_slave = ppi_cs ? ppi_dat : crtc_cs ? cv_dat : fdc_cs ? fdc_dat : usart_cs ? usart_dat : ga_rd ? ga_rd_dat : ms_cs ? ms_dat : cpcm_cs ? cpcm_dat : lx_cs ? lx_dat : ms2_cs ? ms2_dat : dma_cs ? dma_dat : kin_cs ? kin_dat : rtcn_cs ? rtcn_dat : leg_none ? 8'hFF : vc_dat;
 
 // ---- Interrupciones del Gate Array: una cada 52 HSYNC; 2 HSYNC despues
 // del inicio del VSYNC el contador vuelve a 0 (y si iba por 32 o mas, hay

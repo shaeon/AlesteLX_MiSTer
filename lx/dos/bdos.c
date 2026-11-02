@@ -19,6 +19,13 @@
  * fichero abierto va en los bytes 16-31 del FCB (reservados para el DOS), en
  * los sitios de MSX-DOS 1: 16-19 tamano, 24 marcas, 25 entrada del
  * directorio, 26-27 primer cluster.
+ *
+ * Funciones de MSX-DOS 1 ademas de las de CP/M: 07h/08h (entrada sin eco),
+ * 1Bh (asignacion del disco), 26h/27h (bloques con tamano de registro en los
+ * bytes 14-15 del FCB y registro aleatorio de 4 bytes en 33-36), 2Ah-2Dh
+ * (fecha y hora, del reloj MC146818 en FF0060/61), 2Eh (verificacion) y
+ * 2Fh/30h (sectores absolutos). Las que devuelven varios registros a la vez
+ * los dejan en __dos_ret_* (vuelta completa de la pasarela).
  */
 #include <stdint.h>
 #include "drivers/dma.h"
@@ -34,8 +41,10 @@
 #define BIOS_N    17
 
 /* Puertas y registros de bios/dosgate.asm (ROM, ventana 3) */
-extern uint8_t  _dos_reg_c, _dos_reg_a;
-extern uint16_t _dos_reg_de;
+extern uint8_t  _dos_reg_c, _dos_reg_a, _dos_reg_b;
+extern uint16_t _dos_reg_de, _dos_reg_hl;
+extern uint8_t  _dos_xret, _dos_ret_a;
+extern uint16_t _dos_ret_bc, _dos_ret_de, _dos_ret_hl;
 extern uint16_t _dos_bdos_vec, _dos_bios_vec;
 extern uint8_t  _dos_bdos_gate[], _dos_bios_gate[], _dos_isr_gate[];
 
@@ -57,7 +66,7 @@ static uint16_t dma_addr = 0x80;
 #define FL_OPEN  0x80
 #define FL_DIRTY 0x01
 
-static uint8_t fcb[36];
+static uint8_t fcb[37];
 static int16_t search_idx = -1;
 static uint8_t search_pat[11], search_drv;
 
@@ -233,6 +242,129 @@ static void f_size(void) {
     fcb[F_R0] = recs; fcb[F_R0 + 1] = recs >> 8; fcb[F_R0 + 2] = recs >> 16;
 }
 
+/* ---- vuelta con A, BC, DE y HL (MSX-DOS) */
+static uint16_t xret(uint8_t a, uint16_t bc, uint16_t de, uint16_t hl) {
+    _dos_ret_a = a; _dos_ret_bc = bc; _dos_ret_de = de; _dos_ret_hl = hl;
+    _dos_xret = 1;
+    return hl;
+}
+
+/* ---- reloj MC146818 en modo nativo: FF0060 indice, FF0061 dato */
+static uint8_t rtc_rd(uint8_t reg) __z88dk_fastcall __naked {
+    reg;
+    __asm
+        in a, (0xF1)
+        ld h, a
+        xor a
+        out (0xF1), a           ; pagina MMIO 0
+        ld a, l
+        out (0x60), a
+        in a, (0x61)
+        ld l, a
+        ld a, h
+        out (0xF1), a
+        ret
+    __endasm;
+}
+
+static void rtc_wr(uint8_t reg, uint8_t v) __naked {
+    reg; v;
+    __asm
+        ld hl, #2
+        add hl, sp
+        in a, (0xF1)
+        ld b, a
+        xor a
+        out (0xF1), a
+        ld a, (hl)
+        out (0x60), a
+        inc hl
+        ld a, (hl)
+        out (0x61), a
+        ld a, b
+        out (0xF1), a
+        ret
+    __endasm;
+}
+
+static uint8_t rtc_bin(void) { return rtc_rd(0x0B) & 0x04; }
+static uint8_t from_rtc(uint8_t v) { return rtc_bin() ? v : (v >> 4) * 10 + (v & 15); }
+static uint8_t to_rtc(uint8_t v)   { return rtc_bin() ? v : ((v / 10) << 4) | (v % 10); }
+
+static uint16_t get_year(void) {
+    uint8_t y = rtc_rd(9);
+    return rtc_bin() ? 1980 + y : 2000 + from_rtc(y);   /* como lo pone el core */
+}
+
+static uint8_t days_in(uint8_t m, uint16_t y) {
+    static const uint8_t d[12] = { 31,28,31,30,31,30,31,31,30,31,30,31 };
+    if (m == 2 && (y & 3) == 0) return 29;
+    return d[m - 1];
+}
+
+/* dia de la semana (0 = domingo), Zeller */
+static uint8_t weekday(uint16_t y, uint8_t m, uint8_t d) {
+    uint16_t k;
+    if (m < 3) { m += 12; y--; }
+    k = d + (13 * (m + 1)) / 5 + y + y / 4 - y / 100 + y / 400;
+    return (k + 6) % 7;
+}
+
+static uint8_t verify_flag;
+
+/* ---- bloques (26h/27h): HL registros de fcb[14..15] bytes desde el
+   registro aleatorio fcb[33..36] */
+static uint16_t f_block(uint16_t count, uint8_t write) {
+    uint16_t rs = fcb[14] | (fcb[15] << 8);
+    uint32_t rr = get32(&fcb[F_R0]);
+    uint32_t off, size, bytes;
+    uint16_t cl, done = 0;
+    uint8_t r = 0;
+    if (!rs) rs = 128;
+    if (rs < 64) rr &= 0xFFFFFFUL;
+    if (!(fcb[F_FLAGS] & FL_OPEN) || !fcb_drive()) return xret(0xFF, 0, _dos_reg_de, 0);
+    off = rr * rs; size = get32(&fcb[F_SIZE]);
+    cl = fcb[F_CL] | (fcb[F_CL + 1] << 8);
+    if (write) {
+        if (count == 0) {                           /* HL = 0: el tamano pasa a ser off */
+            put32(&fcb[F_SIZE], off);
+            fcb[F_FLAGS] |= FL_DIRTY;
+            return xret(0, 0, _dos_reg_de, 0);
+        }
+        bytes = (uint32_t)count * rs;
+        while (done < count) {
+            uint16_t n = bytes > 0x4000 ? 0x4000 : (uint16_t)bytes;
+            r = fat_io(&cl, off, n, TPA_PHYS + dma_addr + (uint16_t)(off - rr * rs), 1);
+            if (r) break;
+            off += n; bytes -= n;
+            if (!bytes) done = count;
+        }
+        fcb[F_CL] = (uint8_t)cl; fcb[F_CL + 1] = cl >> 8;
+        if (off > size) put32(&fcb[F_SIZE], off);
+        fcb[F_FLAGS] |= FL_DIRTY;
+        if (r) return xret(r == FAT_ERR_FULL ? 1 : 0xFF, 0, _dos_reg_de, 0);
+        put32(&fcb[F_R0], rr + count);
+        return xret(0, 0, _dos_reg_de, count);
+    }
+    /* lectura */
+    if (off >= size) return xret(1, 0, _dos_reg_de, 0);
+    bytes = (uint32_t)count * rs;
+    if (bytes > size - off) bytes = size - off;
+    {
+        uint32_t left = bytes, o = off;
+        while (left) {
+            uint16_t n = left > 0x4000 ? 0x4000 : (uint16_t)left;
+            r = fat_io(&cl, o, n, TPA_PHYS + dma_addr + (uint16_t)(o - off), 0);
+            if (r) break;
+            o += n; left -= n;
+        }
+    }
+    done = (uint16_t)((bytes + rs - 1) / rs);
+    if (bytes % rs) dma_fill(TPA_PHYS + dma_addr + (uint16_t)bytes, 0, rs - (uint16_t)(bytes % rs));
+    put32(&fcb[F_R0], rr + done);
+    return xret(done < count ? 1 : 0, 0, _dos_reg_de, done);
+}
+
 /* ---- consola */
 static void out_char(uint8_t c) {
     if (c >= 0x20 || c == '\r' || c == '\n' || c == '\b' || c == '\t') con_putc(c);
@@ -284,8 +416,11 @@ static uint16_t bdos_c(void) {
         if (e == 0xFE) return kbd_hit() ? 0xFF : 0;
         if (e == 0xFD) return kbd_getc();
         out_char(e); return 0;
-    case 7:  return 0x1A;                       /* lector: fin de fichero */
-    case 8:  return 0;                          /* perforadora */
+    case 3:  return 0x1A;                       /* AUX: nada (fin de fichero) */
+    case 4:  return 0;                          /* AUX: salida */
+    case 5:  return 0;                          /* impresora */
+    case 7:  return (uint8_t)con_getc();    /* MSX-DOS: entrada directa sin eco */
+    case 8:  return (uint8_t)con_getc();    /* MSX-DOS: entrada sin eco */
     case 9:  print_dollar(de); return 0;
     case 10: read_line(de); return 0;
     case 11: return kbd_hit() ? 0xFF : 0;
@@ -319,7 +454,52 @@ static uint16_t bdos_c(void) {
     }
     case 18: return f_search(0);
     case 37: return 0;                          /* reiniciar unidades */
-    case 28: case 29: case 30: case 31: case 27: return 0;
+    case 0x1B: {                                /* asignacion: A spc, BC 512, DE total, HL libres */
+        uint8_t spc_o = 0;
+        uint16_t total = 0, freec = 0;
+        uint8_t d = e ? (e - 1) & 1 : dos_drive;
+        if (fat_use(d) || fat_info(&spc_o, &total, &freec)) return xret(0xFF, 0, 0, 0);
+        return xret(spc_o, 512, total, freec);
+    }
+    case 0x26: case 0x27: {
+        uint16_t res;
+        from_tpa(de, fcb, 37);
+        res = f_block(_dos_reg_hl, fn == 0x26);
+        to_tpa(de, fcb, 37);
+        return res;
+    }
+    case 0x2A: {                                /* fecha: HL ano, D mes, E dia, A dia de la semana */
+        uint16_t y = get_year();
+        uint8_t m = from_rtc(rtc_rd(8)), d = from_rtc(rtc_rd(7));
+        return xret(weekday(y, m, d), 0, ((uint16_t)m << 8) | d, y);
+    }
+    case 0x2B: {                                /* poner fecha: HL ano, D mes, E dia */
+        uint16_t y = _dos_reg_hl;
+        uint8_t m = de >> 8, d = e;
+        if (y < 1980 || y > 2079 || m < 1 || m > 12 || d < 1 || d > days_in(m, y)) return 0xFF;
+        rtc_wr(9, rtc_bin() ? (uint8_t)(y - 1980) : to_rtc((uint8_t)(y % 100)));
+        rtc_wr(8, to_rtc(m));
+        rtc_wr(7, to_rtc(d));
+        rtc_wr(6, weekday(y, m, d) + 1);
+        return 0;
+    }
+    case 0x2C: {                                /* hora: H horas, L minutos, D segundos, E centesimas */
+        uint8_t h = from_rtc(rtc_rd(4)), mi = from_rtc(rtc_rd(2)), se = from_rtc(rtc_rd(0));
+        return xret(0, 0, (uint16_t)se << 8, ((uint16_t)h << 8) | mi);
+    }
+    case 0x2D: {                                /* poner hora: H horas, L minutos, D segundos */
+        uint8_t h = _dos_reg_hl >> 8, mi = (uint8_t)_dos_reg_hl, se = de >> 8;
+        if (h > 23 || mi > 59 || se > 59) return 0xFF;
+        rtc_wr(4, to_rtc(h)); rtc_wr(2, to_rtc(mi)); rtc_wr(0, to_rtc(se));
+        return 0;
+    }
+    case 0x2E: verify_flag = e; return 0;       /* verificacion (no hace falta) */
+    case 0x2F: case 0x30: {                     /* sectores absolutos: DE sector, H cuantos, L unidad */
+        uint8_t d = (uint8_t)_dos_reg_hl, n = _dos_reg_hl >> 8;
+        if (fat_use(d & 1) || fat_abs(de, n, TPA_PHYS + dma_addr, fn == 0x30)) return 0xFF;
+        return 0;
+    }
+    case 28: case 29: case 30: case 31: return 0;
     default:
         return 0;
     }

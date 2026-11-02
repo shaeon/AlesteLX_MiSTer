@@ -53,6 +53,9 @@ uint8_t fat_set_entry(int16_t idx, uint16_t cl, uint32_t size);
 uint8_t fat_delete_idx(int16_t idx);                /* y libera sus clusteres */
 uint8_t fat_rename_idx(int16_t idx, const uint8_t* name);
 uint8_t fat_name11(const char* s, uint8_t* n11);   /* 1 si lleva comodines */
+uint8_t fat_info(uint8_t* spc, uint16_t* total, uint16_t* free_cl); /* clusteres */
+/** Lee o escribe count sectores desde lba (absolutos) en memoria fisica */
+uint8_t fat_abs(uint16_t lba, uint8_t count, uint32_t phys, uint8_t write);
 #endif
 
 #endif

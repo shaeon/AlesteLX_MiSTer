@@ -305,6 +305,31 @@ uint8_t fat_io(uint16_t* cl0, uint32_t off, uint16_t len, uint32_t phys, uint8_t
     return FAT_OK;
 }
 
+uint8_t fat_info(uint8_t* spc_o, uint16_t* total, uint16_t* free_cl) {
+    uint16_t cl, n = 0;
+    if (!mounted) return FAT_ERR_FORMAT;
+    for (cl = 2; cl < nclusters; cl++) if (next_cluster(cl) == 0) n++;
+    *spc_o = spc; *total = nclusters - 2; *free_cl = n;
+    return FAT_OK;
+}
+
+uint8_t fat_abs(uint16_t lba, uint8_t count, uint32_t phys, uint8_t write) {
+    if (cache_flush()) return FAT_ERR_DISK;
+    sec_lba = 0xFFFF;                               /* lo que se escriba, fuera de la cache */
+    while (count--) {
+        if (write) {
+            dma_copy(phys, dma_phys(sec), 512);
+            if (fdc_write_lba(drv, lba, sec)) return FAT_ERR_DISK;
+        } else {
+            if (fdc_read_lba(drv, lba, sec)) return FAT_ERR_DISK;
+            dma_copy(dma_phys(sec), phys, 512);
+        }
+        lba++; phys += 512;
+    }
+    if (write && lba > res_secs && lba - 1 < root_lba) mounted = 0;    /* cambio la FAT: volver a montar */
+    return FAT_OK;
+}
+
 /* ---- directorio con nombres de 11 caracteres ('?' = cualquiera) */
 static uint8_t match11(const uint8_t* pat, const uint8_t* name) {
     uint8_t i;

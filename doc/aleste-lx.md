@@ -174,6 +174,16 @@ abierto va en los bytes 16-31 del FCB, en los sitios de MSX-DOS 1 (16-19
 tamaño, 25 entrada del directorio, 26-27 primer clúster). BIOS de CP/M:
 CONST, CONIN, CONOUT y WBOOT.
 
+Funciones de MSX-DOS 1 (además de las de CP/M): 07h y 08h (entrada sin eco,
+como en MSX-DOS; no las de IOBYTE de CP/M), 03h-05h (auxiliar e impresora:
+nada), 1Bh (asignación: A sectores por clúster, BC 512, DE clústeres, HL
+libres), 26h y 27h (bloques: tamaño de registro en los bytes 14-15 del FCB,
+registro aleatorio de 4 bytes en 33-36, HL registros; HL = 0 en 26h fija el
+tamaño), 28h (= 40), 2Ah-2Dh (fecha y hora, del reloj MC146818), 2Eh
+(verificación) y 2Fh/30h (sectores absolutos: DE sector, H cuántos, L unidad).
+Las que devuelven varios registros dejan A, BC, DE y HL en `__dos_ret_*` y la
+puerta los carga al volver (`__dos_xret`).
+
 Disco: `fat.c` con `FAT_WRITE` (solo en el LX-DOS) escribe. Un sector en
 caché agrupa las escrituras de 128 bytes; la FAT está en memoria y
 `fat_sync` (al cerrar, al borrar o renombrar y al acabar un programa) la
@@ -195,6 +205,7 @@ BIOS, C40000 la memoria de vídeo del modo 16k1b.
 |---|---|---|---|
 | 0 | FF0000-FF001F | PIC | rtl/core/lx/lx_sys.sv |
 | 0 | FF0040-FF005F | Temporizador del sistema | rtl/core/lx/lx_sys.sv |
+| 0 | FF0060-FF0061 | Reloj MC146818 (índice, dato) | rtl/core/cpc/rtc146818.sv |
 | 2 | FF0100-FF011F | Paleta | (vídeo del LX) |
 | 2 | FF0120-FF013F | CRTC | (vídeo del LX) |
 | 6 | FF0300-FF037F | DMA / blitter | rtl/core/lx/lx_dma.sv |
@@ -271,6 +282,15 @@ MSX-DOS del 520EX, o DSK/EDSK del CPC). Su interrupción va a la línea 0.
 | 01 | RW | datos |
 | 02 | W | motor (D0) |
 
+### Reloj (página 0, 60h-61h)
+
+El mismo MC146818 del 520EX (el que se pone en hora con la de MiSTer y se
+guarda en ALESTE.CMO), por índice y dato como en un PC: 60h índice (0-63),
+61h dato. Registros 0 segundos, 2 minutos, 4 horas, 6 día de la semana
+(1 = domingo), 7 día, 8 mes, 9 año (en BCD 00-99 = 2000-2099; en binario,
+años desde 1980) y 0Bh (bit 2 = binario). Usa la puerta de la RAM del reloj
+que también usa la copia de ALESTE.CMO, que tiene preferencia.
+
 ### Teclado (página 8)
 
 Cola de 16 eventos del teclado PS/2 (los que manda MiSTer) y lectura directa
@@ -300,6 +320,15 @@ Copia y relleno de rectángulos, byte a byte.
 | 0E/0F | | paso de línea del destino |
 | 10 | | byte de relleno o color transparente |
 
+### Reloj (página 0, 60h-61h)
+
+El mismo MC146818 del 520EX (el que se pone en hora con la de MiSTer y se
+guarda en ALESTE.CMO), por índice y dato como en un PC: 60h índice (0-63),
+61h dato. Registros 0 segundos, 2 minutos, 4 horas, 6 día de la semana
+(1 = domingo), 7 día, 8 mes, 9 año (en BCD 00-99 = 2000-2099; en binario,
+años desde 1980) y 0Bh (bit 2 = binario). Usa la puerta de la RAM del reloj
+que también usa la copia de ALESTE.CMO, que tiene preferencia.
+
 ### Teclado (página 8)
 
 | Puerto | | |
@@ -320,6 +349,7 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 
 | ROM | Resultado en simulación |
 |---|---|
+| MSXTEST (funciones de MSX-DOS 1) | fecha y hora puestas y leídas, día de la semana, asignación, bloques de 300 × 1 byte con fin de fichero, sector absoluto |
 | M80 y L80 (de `alestedos-dev.dsk` del 520EX) con `lx/dos/test/TEST.MAC` | `m80 =test`, `l80 test,test/n/e` y `test`: ensambla, enlaza y el TEST.COM nuevo se ejecuta |
 | LX-DOS (`sd/LXDOS.DSK`) | arranca; HELLO (consola, BIOS, argumentos) y FILETEST (crear, escribir, cerrar, abrir, leer, renombrar, buscar y borrar) correctos; el disco queda coherente (`+dsk_out=`) |
 | BIOS LX | consola, pitido, órdenes tecleadas; PLAY: melodía E4-E4-F4-G4 y bajo C3/G2 en la salida de la MS2 (`+pcm=fichero` guarda el audio) |
