@@ -54,7 +54,7 @@ module tb_lx;
             "u": return 8'h3C; "v": return 8'h2A; "w": return 8'h1D; "x": return 8'h22; "y": return 8'h35;
             "z": return 8'h1A; "0": return 8'h45; "1": return 8'h16; "2": return 8'h1E; "3": return 8'h26;
             "4": return 8'h25; "5": return 8'h2E; "6": return 8'h36; "7": return 8'h3D; "8": return 8'h3E;
-            "9": return 8'h46; " ": return 8'h29; "_": return 8'h29; ".": return 8'h49; "|": return 8'h5A; "~": return 8'h76;
+            "9": return 8'h46; " ": return 8'h29; "_": return 8'h29; ".": return 8'h49; "=": return 8'h55; ",": return 8'h41; "/": return 8'h4A; "-": return 8'h4E; "|": return 8'h5A; "~": return 8'h76;
             default: return 8'h00;
         endcase
     endfunction
@@ -62,16 +62,34 @@ module tb_lx;
         @(posedge clk_bus); k_code <= code; k_pressed <= pressed; k_strobe <= 1;
         @(posedge clk_bus); k_strobe <= 0;
     endtask
+    task automatic type_text(string txt);
+        foreach (txt[i]) begin
+            key_ev(ps2(txt[i]), 1); #3ms;
+            key_ev(ps2(txt[i]), 0); #3ms;
+        end
+        $display("   tecleado \"%s\" a los %0.1f ms", txt, $realtime / 1.0e6);
+    endtask
+    // +type=texto +type_ms=N, y otras dos tandas: +type2/+type2_ms, +type3/+type3_ms
     initial begin
         string txt; int t_ms;
         if ($value$plusargs("type=%s", txt)) begin
             if (!$value$plusargs("type_ms=%d", t_ms)) t_ms = 120;
             #(t_ms * 1ms);
-            foreach (txt[i]) begin
-                key_ev(ps2(txt[i]), 1); #3ms;
-                key_ev(ps2(txt[i]), 0); #3ms;
-            end
-            $display("   tecleado \"%s\" a los %0.1f ms", txt, $realtime / 1.0e6);
+            type_text(txt);
+        end
+    end
+    initial begin
+        string txt; int t_ms;
+        if ($value$plusargs("type2=%s", txt) && $value$plusargs("type2_ms=%d", t_ms)) begin
+            #(t_ms * 1ms);
+            type_text(txt);
+        end
+    end
+    initial begin
+        string txt; int t_ms;
+        if ($value$plusargs("type3=%s", txt) && $value$plusargs("type3_ms=%d", t_ms)) begin
+            #(t_ms * 1ms);
+            type_text(txt);
         end
     end
 

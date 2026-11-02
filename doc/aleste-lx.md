@@ -320,6 +320,7 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 
 | ROM | Resultado en simulación |
 |---|---|
+| M80 y L80 (de `alestedos-dev.dsk` del 520EX) con `lx/dos/test/TEST.MAC` | `m80 =test`, `l80 test,test/n/e` y `test`: ensambla, enlaza y el TEST.COM nuevo se ejecuta |
 | LX-DOS (`sd/LXDOS.DSK`) | arranca; HELLO (consola, BIOS, argumentos) y FILETEST (crear, escribir, cerrar, abrir, leer, renombrar, buscar y borrar) correctos; el disco queda coherente (`+dsk_out=`) |
 | BIOS LX | consola, pitido, órdenes tecleadas; PLAY: melodía E4-E4-F4-G4 y bajo C3/G2 en la salida de la MS2 (`+pcm=fichero` guarda el audio) |
 | pictest | 59 interrupciones del temporizador en 60 ms, 4 VBlank |
