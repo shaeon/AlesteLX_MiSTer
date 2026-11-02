@@ -105,6 +105,8 @@ el scroll y el borrado por la DMA; `con_putc`, `con_puts`, `con_putu`,
 `con_getc`/`con_gets` con cursor y una rutina que se llama mientras espera
 (`con_set_idle`).
 
+Los textos del monitor (órdenes, ayuda y mensajes) están en inglés.
+
 `main.c` instala todo, da un pitido por la Magic Sound 2 y arranca un monitor
 con las órdenes HELP, CLS, TIME, BEEP, DIR (ficheros del disco de la unidad
 A), LOAD fichero [dir] (lo carga en memoria física), MOD [fichero|dir] (carga

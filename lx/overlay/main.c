@@ -55,7 +55,7 @@ static void status_idle(void) {
             con_gotoxy(36, 0);
             con_puts(mod_kind()); con_putc(' ');
             con_puthex(mod_position()); con_putc('/'); con_puthex(mod_length());
-            con_puts(" fila "); con_puthex(mod_row()); con_puts("   ");
+            con_puts(" row "); con_puthex(mod_row()); con_puts("   ");
         } else {
             con_gotoxy(36, 0);
             con_puts("                    ");
@@ -103,19 +103,19 @@ static void word(char* dst, const char* src, uint8_t max) {
 
 /* ---- Ordenes */
 static void cmd_help(void) {
-    con_puts("HELP          esta ayuda\n");
-    con_puts("CLS           borra la consola\n");
-    con_puts("TIME          milisegundos y VBlanks\n");
-    con_puts("BEEP          pitido por la Magic Sound 2\n");
-    con_puts("PLAY          musica a cuatro canales por la Magic Sound 2\n");
-    con_puts("DIR           ficheros del disco de la unidad A (MSX-DOS, 720 KB)\n");
-    con_puts("LOAD fic [dir]  carga un fichero del disco en memoria fisica (000000)\n");
-    con_puts("MOD [fic|dir] toca un MOD o STM: del disco, o de la memoria fisica\n");
-    con_puts("              (000000: el que se carga con \"Load MOD\" en el OSD)\n");
-    con_puts("STOP          para la musica\n");
-    con_puts("DUMP dir      64 bytes de memoria fisica (direccion hex de 24 bits)\n");
-    con_puts("KEYS          matriz del teclado (ESC sale)\n");
-    con_puts("DEMO          bloque que rebota con el blitter (una tecla sale)\n");
+    con_puts("HELP              this help\n");
+    con_puts("CLS               clear the console\n");
+    con_puts("TIME              milliseconds and VBlanks\n");
+    con_puts("BEEP              beep on the Magic Sound 2\n");
+    con_puts("PLAY              four-channel tune on the Magic Sound 2\n");
+    con_puts("DIR               files on the disk in drive A (MSX-DOS, 720 KB)\n");
+    con_puts("LOAD file [addr]  load a file from disk into physical memory (000000)\n");
+    con_puts("MOD [file/addr]   play a MOD or STM from disk, or from physical memory\n");
+    con_puts("                  (000000: the one loaded with \"Load MOD\" in the OSD)\n");
+    con_puts("STOP              stop the music\n");
+    con_puts("DUMP addr         64 bytes of physical memory (24-bit hex address)\n");
+    con_puts("KEYS              keyboard matrix (ESC exits)\n");
+    con_puts("DEMO              bouncing block drawn by the blitter (any key exits)\n");
 }
 
 static void cmd_time(void) {
@@ -146,7 +146,7 @@ static void cmd_dump(const char* arg) {
 
 static void cmd_keys(void) {
     uint8_t y, r, b;
-    con_puts("Filas 0-10 de la matriz (1 = pulsada). ESC sale.\n");
+    con_puts("Matrix rows 0-10 (1 = pressed). ESC exits.\n");
     if (con_gety() > CON_ROWS - 12) con_clear();
     y = con_gety();
     while (1) {
@@ -195,9 +195,9 @@ static void cmd_demo(void) {
 
 /* ---- Disco */
 static void disk_error(uint8_t r) {
-    if (r == FAT_ERR_DISK)        con_puts("Error de disco: monta una imagen de 720 KB en el OSD (Mount Drive A:).\n");
-    else if (r == FAT_ERR_FORMAT) con_puts("El disco no es MSX-DOS (FAT12).\n");
-    else if (r == FAT_ERR_NOFILE) con_puts("No esta ese fichero.\n");
+    if (r == FAT_ERR_DISK)        con_puts("Disk error: mount a 720 KB image in the OSD (Mount Drive A:).\n");
+    else if (r == FAT_ERR_FORMAT) con_puts("Not an MSX-DOS (FAT12) disk.\n");
+    else if (r == FAT_ERR_NOFILE) con_puts("File not found.\n");
 }
 
 static uint8_t dir_n;
@@ -221,9 +221,9 @@ static void cmd_dir(void) {
     dir_n = 0; dir_total = 0;
     fat_dir(dir_cb);
     if (dir_n & 1) con_putc('\n');
-    con_putu(dir_n); con_puts(" ficheros, ");
-    con_putu((uint16_t)(dir_total >> 10)); con_puts(" KB; libres ");
-    con_putu(fat_free_kb()); con_puts(" KB\n");
+    con_putu(dir_n); con_puts(" files, ");
+    con_putu((uint16_t)(dir_total >> 10)); con_puts(" KB; ");
+    con_putu(fat_free_kb()); con_puts(" KB free\n");
 }
 
 static void progress(uint16_t kb) {
@@ -236,7 +236,7 @@ static uint8_t load_file(const char* name, uint32_t phys) {
     uint8_t r = fat_mount(0);
     if (!r) r = fat_find(name, &e);
     if (!r) {
-        con_puts("Cargando "); con_puts(e.name); con_puts(" en ");
+        con_puts("Loading "); con_puts(e.name); con_puts(" at ");
         con_puthex((uint8_t)(phys >> 16)); con_puthex((uint8_t)(phys >> 8)); con_puthex((uint8_t)phys);
         con_puts(" ("); con_putu((uint16_t)((e.size + 1023) >> 10)); con_puts(" KB)\n");
         r = fat_load(&e, phys, progress);
@@ -260,7 +260,7 @@ static void first_word(char* dst, const char* src, uint8_t max) {
 static void cmd_load(const char* arg) {
     char name[13];
     const char* rest;
-    if (!*arg) { con_puts("LOAD fichero [direccion]\n"); return; }
+    if (!*arg) { con_puts("LOAD file [address]\n"); return; }
     first_word(name, arg, sizeof(name));
     rest = skip_word(arg);
     load_file(name, *rest ? parse_hex(rest) : 0);
@@ -276,14 +276,14 @@ static void cmd_mod(const char* arg) {
         if (!load_file(name, 0)) return;
     } else if (*arg) a = parse_hex(arg);
     if (mod_load(a) != MOD_OK) {
-        con_puts("No hay un MOD de 4 canales ni un STM en ");
+        con_puts("No 4-channel MOD or STM at ");
         con_puthex((uint8_t)(a >> 16)); con_puthex((uint8_t)(a >> 8)); con_puthex((uint8_t)a);
-        con_puts(" (carga uno con \"Load MOD\" en el OSD o MOD FICHERO.STM).\n");
+        con_puts(" (load one with \"Load MOD\" in the OSD, or MOD FILE.STM).\n");
         return;
     }
     con_puts(mod_kind()); con_puts(" \""); con_puts(mod_title()); con_puts("\": ");
-    con_putu(mod_length()); con_puts(" posiciones, ");
-    con_putu(mod_patterns()); con_puts(" patrones. STOP para parar.\n");
+    con_putu(mod_length()); con_puts(" positions, ");
+    con_putu(mod_patterns()); con_puts(" patterns. STOP to stop.\n");
     mod_play();
 }
 
@@ -330,7 +330,7 @@ void main(void) {
     last_ms = timer_get_ms();
     con_set_idle(status_idle);
     beep(150);
-    con_puts("Escribe HELP para ver las ordenes.\n\n");
+    con_puts("Type HELP for the list of commands.\n\n");
 
     while (1) {
         char cmd[8];
@@ -347,11 +347,11 @@ void main(void) {
         else if (streq(cmd, "mod")) cmd_mod(arg);
         else if (streq(cmd, "dir")) cmd_dir();
         else if (streq(cmd, "load")) cmd_load(arg);
-        else if (streq(cmd, "play")) { mod_stop(); tune_start(); con_puts("Himno de la alegria (Beethoven). STOP para parar.\n"); }
+        else if (streq(cmd, "play")) { mod_stop(); tune_start(); con_puts("Ode to Joy (Beethoven). STOP to stop.\n"); }
         else if (streq(cmd, "stop")) { tune_stop(); mod_stop(); }
         else if (streq(cmd, "dump")) cmd_dump(arg);
         else if (streq(cmd, "keys")) cmd_keys();
         else if (streq(cmd, "demo")) cmd_demo();
-        else { con_puts("No conozco esa orden: "); con_puts(cmd); con_putc('\n'); }
+        else { con_puts("Unknown command: "); con_puts(cmd); con_putc('\n'); }
     }
 }
