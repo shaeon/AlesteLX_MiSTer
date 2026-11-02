@@ -16,6 +16,8 @@
 ;   __snd_install      -> A = 0 (todo parado, volumen global al maximo)
 ;   __snd_get_info     -> HL = DriverInfo
 ;   __snd_command      A = orden, HL = parametro -> HL
+;                      orden 1: HL = periodo del temporizador (sin tocar la
+;                      rutina; vale desde la propia rutina de interrupcion)
 ;   __snd_uninstall    todo parado
 ;   __snd_play         HL = voz: la programa y la hace sonar desde el inicio
 ;   __snd_stop         A = canal

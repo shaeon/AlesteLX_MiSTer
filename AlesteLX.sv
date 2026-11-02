@@ -62,7 +62,7 @@ assign BUTTONS = 0;
 //
 // Ficheros (ioctl_index[5:0]), como en MiST:
 //   0  BIOS LX (boot.rom = LX.ROM, se carga sola)  2  guion de bus (WBS)
-//   1  imagen de RAM en bruto (SCRBIN)             3  cinta (CDT/TZX)
+//   1  imagen de RAM en bruto (SCRBIN o MOD, en 000000)  3  cinta (CDT/TZX)
 // Imagenes (hps_io, VDNUM=3): 0 unidad A:, 1 unidad B:, 2 CMOS del SETUP.
 // Al arrancar, el firmware monta solos boot0.vhd (A:) y boot2.vhd (CMOS) si
 // estan en games/AlesteLX/.
@@ -75,6 +75,7 @@ localparam CONF_STR = {
 	"S0,DSKIMG,Mount Drive A:;",
 	"S1,DSKIMG,Mount Drive B:;",
 	"F3,CDTTZX,Load Tape;",
+	"F1,MOD,Load MOD;",
 	"-;",
 	"O[18:17],CPU speed,4 MHz,8 MHz (turbo),16 MHz;",
 	"-;",

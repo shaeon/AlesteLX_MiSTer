@@ -14,6 +14,8 @@ defc DMA_STATUS     = 0x01
 defc DMA_SRC        = 0x02
 defc DMA_KEY        = 0x10
 
+EXTERN __irq_off, __irq_on
+
 SECTION DRV_CODE
 
 PUBLIC __dma_lx_vtable
@@ -68,7 +70,11 @@ dma_lx_command:
     ret
 
 ; ---- HL = peticion de 16 bytes
+; Con las interrupciones cerradas mientras programa, para que una rutina de
+; interrupcion que tambien use la DMA no se mezcle (esa rutina espera a que
+; acabe la transferencia en curso antes de lanzar la suya).
 dma_lx_start:
+    call __irq_off
     push hl
     call dma_lx_wait            ; deja la pagina 6 elegida
     pop hl
@@ -85,7 +91,7 @@ st_loop:
     add a, a
     or 0x01                     ; arranca, sin interrupcion
     out (DMA_CTRL), a
-    ret
+    jp __irq_on
 
 ; ---- espera a que acabe (deja elegida la pagina 6)
 dma_lx_wait:

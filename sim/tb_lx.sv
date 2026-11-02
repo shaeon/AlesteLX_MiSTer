@@ -283,6 +283,18 @@ module tb_lx;
         download(6'd0, rom, 18);
         wait (cpu_running);
         $display("   la CPU arranca a los %0.2f ms", $realtime / 1.0e6);
+        begin   // +mod=FICHERO: por el indice 1 a la RAM 000000, como "Load MOD" del OSD
+            string modf; logic [7:0] md[]; int mn, mfd;
+            if ($value$plusargs("mod=%s", modf)) begin
+                mfd = $fopen(modf, "rb");
+                mn = $fread(fbuf, mfd);
+                $fclose(mfd);
+                md = new[mn];
+                foreach (md[i]) md[i] = fbuf[i];
+                download(6'd1, md, 18);
+                $display("   MOD %s (%0d bytes) cargado en 000000 a los %0.2f ms", modf, mn, $realtime / 1.0e6);
+            end
+        end
 
         fork
             begin if ($test$plusargs("nohalt")) wait (0); wait (cpu_halted); $display("== HALT a los %0.2f ms", $realtime / 1.0e6); #2ms; end

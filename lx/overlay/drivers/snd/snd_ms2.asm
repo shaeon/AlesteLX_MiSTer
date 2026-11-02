@@ -2,9 +2,9 @@
 ; SND_MS2.ASM - Sonido con la Magic Sound 2 del Aleste LX (pagina MMIO 7)
 ; Shaeon (Carlos Palmero). Registros: doc/aleste-lx.md.
 ;
-; Las rutinas de un canal desactivan las interrupciones mientras escriben
-; sus registros, para que una rutina de interrupcion (un reproductor de
-; musica) no se mezcle con ellas.
+; Las rutinas de un canal cierran las interrupciones mientras escriben sus
+; registros (__irq_off/__irq_on, bios/irqsave.asm), para que una rutina de
+; interrupcion (un reproductor de musica) no se mezcle con ellas.
 ; =============================================================================
 
 module snd_ms2
@@ -23,6 +23,7 @@ defc MS2_CH0        = 0x20
 defc MS2_IRQ_LINE   = 3
 
 EXTERN __int_set_handler, __int_enable, __int_disable
+EXTERN __irq_off, __irq_on
 
 SECTION DRV_CODE
 
@@ -98,31 +99,20 @@ ms2_get_info:
     ld hl, info
     ret
 
+; ---- ordenes: A = 1 -> HL = nuevo periodo del temporizador (sin tocar la
+;      rutina ni las interrupciones: vale desde la propia rutina)
 ms2_command:
+    cp 1
+    jr nz, cmd_none
+    ld a, MS2_PAGE
+    out (PORT_MMIO_PAGE), a
+    ld a, l
+    out (MS2_TIMER_LO), a
+    ld a, h
+    out (MS2_TIMER_HI), a
+    ret
+cmd_none:
     ld hl, 0
-    ret
-
-; Cierra las interrupciones guardando como estaban (P/V = IFF2):
-;   call irq_off ... call irq_on   (irq_on las abre solo si estaban abiertas)
-irq_off:
-    push af
-    ld a, i
-    di
-    ld a, 0
-    jp po, io_was_off
-    inc a
-io_was_off:
-    ld (irq_was_on), a
-    pop af
-    ret
-irq_on:
-    push af
-    ld a, (irq_was_on)
-    or a
-    jr z, io_keep
-    ei
-io_keep:
-    pop af
     ret
 
 ; A = canal -> C = puerto base del canal (20h + canal * 10h)
@@ -143,7 +133,7 @@ ms2_play:
     call ch_base
     ld b, (hl)                  ; control
     inc hl
-    call irq_off
+    call __irq_off
     ld a, MS2_PAGE
     out (PORT_MMIO_PAGE), a
     xor a
@@ -162,7 +152,7 @@ pl_loop:
     and 0x0E
     or 0x01                     ; suena
     out (c), a
-    call irq_on
+    call __irq_on
     ret
 
 ; ---- A = canal
@@ -180,13 +170,13 @@ ms2_set_volume:
     ld a, c
     add a, 0x0A
     ld c, a
-    call irq_off
+    call __irq_off
     ld a, MS2_PAGE
     out (PORT_MMIO_PAGE), a
     out (c), d
     inc c
     out (c), e
-    call irq_on
+    call __irq_on
     ret
 
 ; ---- A = canal, E:HL = paso
@@ -195,7 +185,7 @@ ms2_set_step:
     ld a, c
     add a, 0x0C
     ld c, a
-    call irq_off
+    call __irq_off
     ld a, MS2_PAGE
     out (PORT_MMIO_PAGE), a
     out (c), l
@@ -203,7 +193,7 @@ ms2_set_step:
     out (c), h
     inc c
     out (c), e                  ; el byte alto aplica el valor
-    call irq_on
+    call __irq_on
     ret
 
 ; ---- D = izquierdo, E = derecho
@@ -282,4 +272,3 @@ info_name:
     db "SND Magic Sound 2", 0
 
 user_handler: dw 0
-irq_was_on:   db 0

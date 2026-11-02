@@ -77,8 +77,6 @@ uint32_t dma_phys(const void* cpu_addr) __z88dk_fastcall __naked {
     __endasm;
 }
 
-static dma_req_t req;
-
 static void set24(uint8_t* p, uint32_t v) {
     p[0] = (uint8_t)v;
     p[1] = (uint8_t)(v >> 8);
@@ -87,6 +85,7 @@ static void set24(uint8_t* p, uint32_t v) {
 
 void dma_rect(uint32_t src, uint32_t dst, uint16_t width, uint16_t height,
               int16_t src_stride, int16_t dst_stride, uint8_t mode, uint8_t key) {
+    dma_req_t req;                  /* en la pila: tambien se usa desde interrupciones */
     set24(req.src, src);
     set24(req.dst, dst);
     req.width = width;

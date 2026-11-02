@@ -17,6 +17,7 @@
 #include "drivers/kbd.h"
 #include "drivers/snd.h"
 #include "tune.h"
+#include "mod.h"
 #include "con.h"
 
 #define VRAM_PHYS   0xC40000UL
@@ -48,6 +49,15 @@ static void status_idle(void) {
     if (acc_ms >= 1000) {
         acc_ms -= 1000;
         secs++;
+        if (mod_playing()) {
+            con_gotoxy(36, 0);
+            con_puts("MOD ");
+            con_puthex(mod_position()); con_putc('/'); con_puthex(mod_length());
+            con_puts(" fila "); con_puthex(mod_row()); con_puts("   ");
+        } else {
+            con_gotoxy(36, 0);
+            con_puts("                    ");
+        }
         con_gotoxy(62, 0);
         con_puts("UPTIME ");
         con_putu(secs);
@@ -96,6 +106,8 @@ static void cmd_help(void) {
     con_puts("TIME          milisegundos y VBlanks\n");
     con_puts("BEEP          pitido por la Magic Sound 2\n");
     con_puts("PLAY          musica a cuatro canales por la Magic Sound 2\n");
+    con_puts("MOD [dir]     toca un MOD de ProTracker de la memoria fisica (000000:\n");
+    con_puts("              el que se carga con \"Load MOD\" en el OSD)\n");
     con_puts("STOP          para la musica\n");
     con_puts("DUMP dir      64 bytes de memoria fisica (direccion hex de 24 bits)\n");
     con_puts("KEYS          matriz del teclado (ESC sale)\n");
@@ -177,6 +189,21 @@ static void cmd_demo(void) {
     con_clear();
 }
 
+static void cmd_mod(const char* arg) {
+    uint32_t a = *arg ? parse_hex(arg) : 0;
+    tune_stop();
+    if (mod_load(a) != MOD_OK) {
+        con_puts("No hay un MOD de 4 canales en ");
+        con_puthex((uint8_t)(a >> 16)); con_puthex((uint8_t)(a >> 8)); con_puthex((uint8_t)a);
+        con_puts(" (carga uno con \"Load MOD\" en el OSD).\n");
+        return;
+    }
+    con_puts("\""); con_puts(mod_title()); con_puts("\": ");
+    con_putu(mod_length()); con_puts(" posiciones, ");
+    con_putu(mod_patterns()); con_puts(" patrones. STOP para parar.\n");
+    mod_play();
+}
+
 static char line[64];
 
 void main(void) {
@@ -232,8 +259,9 @@ void main(void) {
         else if (streq(cmd, "cls")) con_clear();
         else if (streq(cmd, "time")) cmd_time();
         else if (streq(cmd, "beep")) beep(150);
-        else if (streq(cmd, "play")) { tune_start(); con_puts("Himno de la alegria (Beethoven). STOP para parar.\n"); }
-        else if (streq(cmd, "stop")) tune_stop();
+        else if (streq(cmd, "mod")) cmd_mod(arg);
+        else if (streq(cmd, "play")) { mod_stop(); tune_start(); con_puts("Himno de la alegria (Beethoven). STOP para parar.\n"); }
+        else if (streq(cmd, "stop")) { tune_stop(); mod_stop(); }
         else if (streq(cmd, "dump")) cmd_dump(arg);
         else if (streq(cmd, "keys")) cmd_keys();
         else if (streq(cmd, "demo")) cmd_demo();

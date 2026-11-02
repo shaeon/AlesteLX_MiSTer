@@ -22,7 +22,8 @@
 ;   __dma_busy        -> A = 1 si esta trabajando
 ;   __dma_phys        HL = direccion de la CPU -> DEHL = direccion fisica
 ;                     (con el mapa actual de la MMU, slots del supervisor)
-; No es reentrante: no usar desde una interrupcion si el programa la usa.
+; Se puede usar desde una rutina de interrupcion: start programa con las
+; interrupciones cerradas y espera antes a que acabe la transferencia en curso.
 ; =============================================================================
 
 module dma_driver

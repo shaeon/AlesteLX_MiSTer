@@ -69,6 +69,17 @@ y `snd_step_period(periodo)` (periodo de Amiga PAL → paso). Las rutinas de un
 canal guardan y restauran el estado de las interrupciones, así que se pueden
 llamar desde una rutina de interrupción (un reproductor).
 
+**MOD** (`mod.h`, `src/mod.c`): reproductor de MOD de ProTracker de 4
+canales (M.K., M!K!, 4CHN, FLT4) que suena en segundo plano desde la
+interrupción del temporizador de la MS2; las muestras se tocan directamente de
+la memoria donde está el MOD y cada fila del patrón se lee por DMA.
+`mod_load(direccion_fisica)`, `mod_play()`, `mod_stop()`, y `mod_title`,
+`mod_position`, `mod_length`, `mod_row`, `mod_patterns`. Efectos: 0 arpegio,
+1/2 portamento, 3 portamento hacia la nota, 4 vibrato, 5 y 6, 9
+desplazamiento de muestra, A volumen, B salto de posición, C volumen, D salto
+de patrón, F velocidad/tempo, E1/E2, EA/EB y EC. Sin afinación fina; muestras
+de hasta 64 KB. Canales 0 y 3 a la izquierda, 1 y 2 a la derecha.
+
 **Consola** (`con.h`, `src/con.c`): texto de 80x25 sobre el modo 640x200 con
 el scroll y el borrado por la DMA; `con_putc`, `con_puts`, `con_putu`,
 `con_puthex`, `con_gotoxy`, una ventana de scroll (`con_set_window`), y
@@ -76,7 +87,8 @@ el scroll y el borrado por la DMA; `con_putc`, `con_puts`, `con_putu`,
 (`con_set_idle`).
 
 `main.c` instala todo, da un pitido por la Magic Sound 2 y arranca un monitor
-con las órdenes HELP, CLS, TIME, BEEP, PLAY/STOP (`src/tune.c`: el Himno de
+con las órdenes HELP, CLS, TIME, BEEP, MOD [dir] (toca el MOD cargado con
+"Load MOD" en el OSD, en 000000), PLAY/STOP (`src/tune.c`: el Himno de
 la alegría a cuatro canales, con melodía, bajo, arpegio y charles, secuenciado
 por el temporizador de la MS2), DUMP (memoria física por la DMA), KEYS
 (la matriz del teclado) y DEMO (un bloque que rebota con el blitter
@@ -207,11 +219,13 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 | BIOS LX | consola, pitido, órdenes tecleadas; PLAY: melodía E4-E4-F4-G4 y bajo C3/G2 en la salida de la MS2 (`+pcm=fichero` guarda el audio) |
 | pictest | 59 interrupciones del temporizador en 60 ms, 4 VBlank |
 | ms2test | onda cuadrada a 187,5 Hz, ±4064, 7 fines de muestra y 11 ticks de 300 Hz en 40 ms |
+| MOD (`lx/test/LXDEMO.MOD`, de `tools/make_test_mod.py`) | `+mod=` lo carga como el OSD; MOD toca la melodía (E4, F4) y el bajo (C3), con la posición y la fila en la línea de estado |
 | dmatest | relleno 8x3, copia 4x2 y copia con transparente correctos, 4 IRQ |
 
 ## Pendiente
 
-- Reproductor de MOD sobre el driver de sonido.
+- Afinación fina de las muestras en el reproductor de MOD y los efectos que faltan
+  (E3-E9, EE, 7).
 - Teclado español (ahora la tabla es la de EE. UU.).
 - IPC (FF0020): en MiSTer el "MCU" podría ser el ARM por hps_io.
 - Acelerador gráfico con conversión de formatos de píxel (el blitter cubre

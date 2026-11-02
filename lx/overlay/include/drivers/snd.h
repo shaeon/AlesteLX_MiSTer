@@ -44,6 +44,7 @@ void    snd_set_step(uint8_t channel, uint32_t step);
 void    snd_master(uint8_t left, uint8_t right);
 uint8_t snd_status(void);                       /* bits 7-4 sonando, 3-0 terminado */
 void    snd_set_timer(uint16_t period_samples, int_handler_t handler); /* 960 = 50 Hz */
+void    snd_set_timer_period(uint16_t period_samples) __z88dk_fastcall; /* solo el periodo; vale desde la rutina */
 
 /* Ayudas */
 uint32_t snd_step_rate(uint16_t sample_rate) __z88dk_fastcall; /* muestras/s -> paso */

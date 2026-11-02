@@ -141,6 +141,15 @@ void snd_set_timer(uint16_t period_samples, int_handler_t handler) __naked {
     __endasm;
 }
 
+void snd_set_timer_period(uint16_t period_samples) __z88dk_fastcall __naked {
+    period_samples;
+    __asm
+        EXTERN __snd_command
+        ld a, 1
+        jp __snd_command
+    __endasm;
+}
+
 uint32_t snd_step_rate(uint16_t sample_rate) __z88dk_fastcall {
     return ((uint32_t)sample_rate << 16) / SND_RATE;
 }

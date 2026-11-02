@@ -15,7 +15,8 @@ hardware. Este core añade:
 - **DMA / blitter**: copia, relleno y copia con transparente de rectángulos.
 - **Teclado** PS/2 con cola de eventos y lectura de la matriz del 520EX.
 - La **BIOS LX** de hww arreglada y ampliada con drivers de interrupciones,
-  temporizador, DMA y teclado, una consola de 80x25 y un pequeño monitor.
+  temporizador, DMA, teclado y sonido, una consola de 80x25, un pequeño
+  monitor y un **reproductor de MOD** de ProTracker.
 
 El Aleste 520EX sigue siendo un core aparte:
 [Aleste520EX_MiSTer](https://github.com/shaeon/Aleste520EX_MiSTer).
@@ -23,7 +24,8 @@ El Aleste 520EX sigue siendo un core aparte:
 ## Uso
 
 Copia el `.rbf` a `_Computer/` y `sd/LX.ROM` como `games/AlesteLX/boot.rom`.
-Al arrancar sale el monitor (`LX>`); `HELP` lista las órdenes.
+Al arrancar sale el monitor (`LX>`); `HELP` lista las órdenes. Para oír un
+MOD de 4 canales: "Load MOD" en el OSD y la orden `MOD`.
 
 ## Organización
 
