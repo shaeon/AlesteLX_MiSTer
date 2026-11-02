@@ -26,6 +26,10 @@ uint8_t fdc_status(void);
 uint8_t fdc_read(uint8_t drive, uint8_t track, uint8_t head, uint8_t sector, void* buf);
 /** Lee 'count' sectores seguidos de la misma pista y cara con una sola orden */
 uint8_t fdc_read_multi(uint8_t drive, uint8_t track, uint8_t head, uint8_t sector, uint8_t count, void* buf);
+/** Escribe 'count' sectores seguidos de la misma pista y cara */
+uint8_t fdc_write_multi(uint8_t drive, uint8_t track, uint8_t head, uint8_t sector, uint8_t count, const void* buf);
+/** Escribe el sector logico lba */
+uint8_t fdc_write_lba(uint8_t drive, uint16_t lba, const void* buf);
 /** Lee el sector logico lba (0 = pista 0, cara 0, sector 1) */
 uint8_t fdc_read_lba(uint8_t drive, uint16_t lba, void* buf);
 

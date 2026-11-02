@@ -166,11 +166,24 @@ BIOS de CP/M en BF03h y sus entradas (`LD A,n / JP __dos_bios_gate`) en
 BF40h.
 
 Funciones: consola (1, 2, 6, 7, 8, 9, 10, 11), versión (12, CP/M 2.2),
-unidades (13, 14, 24, 25), DMA (26) y usuario (32); BIOS CONST, CONIN, CONOUT
-y WBOOT. Las de ficheros (15-40) devuelven error por ahora.
+unidades (13, 14, 24, 25, 37), DMA (26), usuario (32) y ficheros por FCB:
+abrir (15), cerrar (16), buscar (17, 18, con `?`), borrar (19), leer y
+escribir secuencial (20, 21) y aleatorio (33, 34, 40), crear (22),
+renombrar (23), tamaño (35) y registro aleatorio (36). El estado del fichero
+abierto va en los bytes 16-31 del FCB, en los sitios de MSX-DOS 1 (16-19
+tamaño, 25 entrada del directorio, 26-27 primer clúster). BIOS de CP/M:
+CONST, CONIN, CONOUT y WBOOT.
 
-Órdenes del LX-DOS: `A:`, `B:`, `DIR`, `TYPE`, `CLS`, `VER`, `MONITOR`,
-`HELP` y `nombre [argumentos]` para ejecutar `NOMBRE.COM`.
+Disco: `fat.c` con `FAT_WRITE` (solo en el LX-DOS) escribe. Un sector en
+caché agrupa las escrituras de 128 bytes; la FAT está en memoria y
+`fat_sync` (al cerrar, al borrar o renombrar y al acabar un programa) la
+escribe en sus dos copias. El driver `fdc` escribe con la orden WRITE DATA
+del 765 (`fdc_write_multi`).
+
+Órdenes del LX-DOS: `A:`, `B:`, `DIR`, `TYPE`, `COPY origen destino`
+(destino puede ser `B:`), `DEL` (con comodines), `REN`, `CLS`, `VER`,
+`MONITOR`, `HELP` y `nombre [argumentos]` para ejecutar `NOMBRE.COM`. Al
+arrancar ejecuta `AUTOEXEC.BAT` si lo hay.
 
 ## Mapa de E/S nativo
 
@@ -307,6 +320,7 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 
 | ROM | Resultado en simulación |
 |---|---|
+| LX-DOS (`sd/LXDOS.DSK`) | arranca; HELLO (consola, BIOS, argumentos) y FILETEST (crear, escribir, cerrar, abrir, leer, renombrar, buscar y borrar) correctos; el disco queda coherente (`+dsk_out=`) |
 | BIOS LX | consola, pitido, órdenes tecleadas; PLAY: melodía E4-E4-F4-G4 y bajo C3/G2 en la salida de la MS2 (`+pcm=fichero` guarda el audio) |
 | pictest | 59 interrupciones del temporizador en 60 ms, 4 VBlank |
 | ms2test | onda cuadrada a 187,5 Hz, ±4064, 7 fines de muestra y 11 ticks de 300 Hz en 40 ms |

@@ -83,7 +83,9 @@ module tb_lx;
     logic [2:0]  sd_rd, sd_wr;
     logic        sd_ack = 0, sd_buff_wr = 0;
     logic [8:0]  sd_buff_addr = 0;
-    logic [7:0]  sd_buff_dout = 0;
+    logic [7:0]  sd_buff_dout = 0, sd_buff_din;
+    int          n_wsect = 0;
+    string       dsk_name;
     logic        fdc_fast = 1;
     logic [7:0]  dsk [0:(1<<20)-1];
     int          n_sect = 0;
@@ -104,10 +106,26 @@ module tb_lx;
             @(posedge clk_bus);
             sd_ack <= 0;
         end
+        // escritura: el core da el sector por sd_buff_din segun sd_buff_addr
+        if (sd_wr[1:0] != 0 && !sd_ack) begin
+            n_wsect++;
+            repeat (20) @(posedge clk_bus);
+            sd_ack <= 1;
+            for (int i = 0; i < 512; i++) begin
+                @(posedge clk_bus);
+                sd_buff_addr <= 9'(i);
+                @(posedge clk_bus);
+                @(posedge clk_bus);
+                dsk[sd_lba * 512 + i] = sd_buff_din;
+            end
+            @(posedge clk_bus);
+            sd_ack <= 0;
+        end
     end
     initial begin
         string df; int dfd, dn;
         if ($value$plusargs("dsk=%s", df)) begin
+            dsk_name = df;
             dfd = $fopen(df, "rb");
             if (dfd == 0) begin $display("No encuentro la imagen %s", df); $finish; end
             dn = $fread(dsk, dfd);
@@ -135,9 +153,9 @@ module tb_lx;
         .user_reset(1'b0), .boot_mode(2'd0),
         .key_strobe(k_strobe), .key_pressed(k_pressed), .key_extended(1'b0), .key_code(k_code),
         .fdc_fast(fdc_fast), .fdc_one_drive(1'b0),
-        .img_mounted(img_mounted), .img_wp(1'b1), .img_size(img_size),
+        .img_mounted(img_mounted), .img_wp(1'b0), .img_size(img_size),
         .sd_lba(sd_lba), .sd_rd(sd_rd), .sd_wr(sd_wr), .sd_ack(sd_ack),
-        .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_din(),
+        .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din),
         .sd_buff_wr(sd_buff_wr),
         .ioctl_download, .ioctl_index, .ioctl_wr, .ioctl_addr, .ioctl_dout,
         .sdram_dq_i(dq_sdram_oe ? dq_sdram : dq_ctrl),
@@ -361,7 +379,17 @@ module tb_lx;
         $display("== Variables de la ROM (3F10..): magic=%02h  temporizador=%0d  vblank=%0d  otras=%0d",
                  peek(24'hC03F10), {peek(24'hC03F13), peek(24'hC03F12)},
                  {peek(24'hC03F15), peek(24'hC03F14)}, {peek(24'hC03F17), peek(24'hC03F16)});
-        $display("== Disco: %0d sectores leidos de la SD", n_sect);
+        $display("== Disco: %0d sectores leidos y %0d escritos en la SD", n_sect, n_wsect);
+        // +dsk_out=FICHERO guarda la imagen tal como ha quedado
+        begin
+            string dof; int fo;
+            if ($value$plusargs("dsk_out=%s", dof)) begin
+                fo = $fopen(dof, "wb");
+                for (int i = 0; i < 737280; i++) $fwrite(fo, "%c", dsk[i]);
+                $fclose(fo);
+                $display("   imagen del disco guardada en %s", dof);
+            end
+        end
         $display("== MS2: salida izquierda de %0d a %0d, %0d cambios de signo", a_min, a_max, a_flips);
         begin
             int pa, pn;

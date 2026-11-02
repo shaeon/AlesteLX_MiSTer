@@ -30,6 +30,7 @@ __fdc_765_vtable:
     jp f765_read
     jp f765_status
     jp f765_read_multi
+    jp f765_write_multi
 
 f765_status:
     ld a, FDC_PAGE
@@ -139,6 +140,15 @@ f765_read:
     ld b, 1
 f765_read_multi:
     push af
+    ld a, 0x46                  ; READ DATA (MFM)
+    jr rw_start
+f765_write_multi:
+    push af
+    ld a, 0x45                  ; WRITE DATA (MFM)
+rw_start:
+    ld (r_cmd), a
+    pop af
+    push af
     ld a, b
     dec a
     add a, c
@@ -202,8 +212,8 @@ rd_seek_err:
     ld a, (r_trk)
     ld (hl), a
 rd_ontrack:
-    ; ---- READ DATA (MFM): 9 bytes de orden
-    ld a, 0x46
+    ; ---- READ DATA / WRITE DATA (MFM): 9 bytes de orden
+    ld a, (r_cmd)
     call cmd_out
     jp c, rd_timeout
     ld a, (r_head)
@@ -239,8 +249,16 @@ rd_exec:
     jr z, rd_noreq
     bit MSR_EXM, a
     jr z, rd_result             ; fin de la ejecucion
+    bit MSR_DIO, a
+    jr z, rd_put                ; el 765 pide un byte: escritura
     in a, (FDC_DATA)
     ld (hl), a
+    inc hl
+    ld de, 0
+    jr rd_exec
+rd_put:
+    ld a, (hl)
+    out (FDC_DATA), a
     inc hl
     ld de, 0
     jr rd_exec
@@ -306,6 +324,7 @@ r_trk:   db 0
 r_head:  db 0
 r_sec:   db 0
 r_eot:   db 0
+r_cmd:   db 0x46
 r_buf:   dw 0
 r_st:    ds 3
 r_to:    db 0

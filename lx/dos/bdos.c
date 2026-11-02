@@ -14,8 +14,11 @@
  *   BF40h  una entrada por funcion del BIOS: LD A,n / JP __dos_bios_gate
  * La TPA llega hasta BF00h (lo que dice 0006h) y la pila empieza ahi.
  *
- * Fase 2: consola. Las funciones de ficheros (15-40) devuelven error (FFh)
- * hasta la fase siguiente.
+ * Ficheros por FCB (CP/M 2.2): abrir, cerrar, buscar, borrar, leer y
+ * escribir secuencial y aleatorio, crear, renombrar, tamano. El estado del
+ * fichero abierto va en los bytes 16-31 del FCB (reservados para el DOS), en
+ * los sitios de MSX-DOS 1: 16-19 tamano, 24 marcas, 25 entrada del
+ * directorio, 26-27 primer cluster.
  */
 #include <stdint.h>
 #include "drivers/dma.h"
@@ -39,9 +42,196 @@ extern uint8_t  _dos_bdos_gate[], _dos_bios_gate[], _dos_isr_gate[];
 uint8_t dos_drive;                  /* 0 = A:, 1 = B: */
 static uint16_t dma_addr = 0x80;
 
+/* ---- FCB */
+#define F_DR    0
+#define F_NAME  1
+#define F_EX    12
+#define F_S2    14
+#define F_RC    15
+#define F_SIZE  16
+#define F_FLAGS 24
+#define F_DIR   25
+#define F_CL    26
+#define F_CR    32
+#define F_R0    33
+#define FL_OPEN  0x80
+#define FL_DIRTY 0x01
+
+static uint8_t fcb[36];
+static int16_t search_idx = -1;
+static uint8_t search_pat[11], search_drv;
+
 /* ---- memoria del programa por la DMA */
 static void to_tpa(uint16_t a, const void* p, uint16_t n) { dma_copy(dma_phys(p), TPA_PHYS + a, n); }
 static void from_tpa(uint16_t a, void* p, uint16_t n)     { dma_copy(TPA_PHYS + a, dma_phys(p), n); }
+
+static uint32_t get32(const uint8_t* p) { return p[0] | ((uint16_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24); }
+static void put32(uint8_t* p, uint32_t v) { p[0] = v; p[1] = v >> 8; p[2] = v >> 16; p[3] = v >> 24; }
+
+/* unidad del FCB (0 = la actual) y montarla */
+static uint8_t fcb_drive(void) {
+    uint8_t d = fcb[F_DR];
+    d = (d == 0 || d == '?') ? dos_drive : (d - 1) & 1;
+    return fat_use(d) == FAT_OK;
+}
+
+/* registro secuencial del FCB: (s2 * 32 + ex) * 128 + cr */
+static uint32_t seq_rec(void) {
+    return ((uint32_t)((fcb[F_S2] & 0x3F) * 32 + (fcb[F_EX] & 31)) << 7) | (fcb[F_CR] & 0x7F);
+}
+
+static void set_rec(uint32_t rec) {
+    fcb[F_CR] = rec & 0x7F;
+    fcb[F_EX] = (rec >> 7) & 31;
+    fcb[F_S2] = (rec >> 12) & 0x3F;
+}
+
+/* registros de la extension actual (rc) segun el tamano */
+static void update_rc(void) {
+    uint32_t recs = (get32(&fcb[F_SIZE]) + 127) >> 7;
+    uint32_t first = ((uint32_t)((fcb[F_S2] & 0x3F) * 32 + (fcb[F_EX] & 31))) << 7;
+    fcb[F_RC] = recs <= first ? 0 : (recs - first >= 128 ? 128 : (uint8_t)(recs - first));
+}
+
+static void fcb_open_from(int16_t idx, const uint8_t* ent) {
+    uint8_t k;
+    for (k = 0; k < 11; k++) fcb[F_NAME + k] = ent[k];
+    for (k = 0; k < 4; k++) fcb[F_SIZE + k] = ent[28 + k];
+    fcb[F_FLAGS] = FL_OPEN;
+    fcb[F_DIR] = (uint8_t)idx;
+    fcb[F_CL] = ent[26]; fcb[F_CL + 1] = ent[27];
+    update_rc();
+}
+
+static uint8_t f_open(void) {
+    uint8_t ent[32];
+    int16_t idx;
+    if (!fcb_drive()) return 0xFF;
+    idx = fat_find11(&fcb[F_NAME], 0, ent);
+    if (idx < 0) return 0xFF;
+    fcb[F_S2] = 0;
+    fcb_open_from(idx, ent);
+    return 0;
+}
+
+static uint8_t f_close(void) {
+    if (!fcb_drive()) return 0xFF;
+    if ((fcb[F_FLAGS] & (FL_OPEN | FL_DIRTY)) == (FL_OPEN | FL_DIRTY)) {
+        if (fat_set_entry(fcb[F_DIR], fcb[F_CL] | (fcb[F_CL + 1] << 8), get32(&fcb[F_SIZE]))) return 0xFF;
+        fcb[F_FLAGS] &= ~FL_DIRTY;
+    }
+    return fat_sync() ? 0xFF : 0;
+}
+
+static uint8_t f_make(void) {
+    int16_t idx;
+    uint8_t k;
+    if (!fcb_drive()) return 0xFF;
+    while ((idx = fat_find11(&fcb[F_NAME], 0, 0)) >= 0) fat_delete_idx(idx);
+    idx = fat_create11(&fcb[F_NAME]);
+    if (idx < 0) return 0xFF;
+    for (k = 0; k < 4; k++) fcb[F_SIZE + k] = 0;
+    fcb[F_FLAGS] = FL_OPEN | FL_DIRTY;
+    fcb[F_DIR] = (uint8_t)idx;
+    fcb[F_CL] = 0; fcb[F_CL + 1] = 0;
+    fcb[F_S2] = 0; fcb[F_RC] = 0;
+    return 0;
+}
+
+static uint8_t f_delete(void) {
+    int16_t idx = 0;
+    uint8_t any = 0;
+    if (!fcb_drive()) return 0xFF;
+    while ((idx = fat_find11(&fcb[F_NAME], idx, 0)) >= 0) { fat_delete_idx(idx); any = 1; idx++; }
+    fat_sync();
+    return any ? 0 : 0xFF;
+}
+
+static uint8_t f_rename(void) {
+    int16_t idx;
+    if (!fcb_drive()) return 0xFF;
+    if (fat_find11(&fcb[17], 0, 0) >= 0) return 0xFF;       /* el nombre nuevo ya existe */
+    idx = fat_find11(&fcb[F_NAME], 0, 0);
+    if (idx < 0) return 0xFF;
+    fat_rename_idx(idx, &fcb[17]);
+    fat_sync();
+    return 0;
+}
+
+/* Busca y deja la entrada, al estilo CP/M, en el DMA: 0 o FFh */
+static uint8_t f_search(uint8_t first) {
+    uint8_t ent[32], out[32], k;
+    uint32_t recs;
+    if (first) {
+        if (!fcb_drive()) return 0xFF;
+        for (k = 0; k < 11; k++) search_pat[k] = fcb[F_DR] == '?' ? '?' : fcb[F_NAME + k];
+        search_drv = fcb[F_DR];
+        search_idx = 0;
+    }
+    if (search_idx < 0) return 0xFF;
+    search_idx = fat_find11(search_pat, search_idx, ent);
+    if (search_idx < 0) return 0xFF;
+    search_idx++;
+    for (k = 0; k < 32; k++) out[k] = 0;
+    for (k = 0; k < 11; k++) out[1 + k] = ent[k];
+    recs = (get32(&ent[28]) + 127) >> 7;
+    out[12] = recs ? (uint8_t)((recs - 1) >> 7) & 31 : 0;         /* ultima extension */
+    out[15] = recs ? (uint8_t)(((recs - 1) & 127) + 1) : 0;
+    for (k = 0; k < 4; k++) out[16 + k] = ent[28 + k];          /* tamano, como MSX-DOS */
+    to_tpa(dma_addr, out, 32);
+    return 0;
+}
+
+/* Lee o escribe el registro rec en el DMA: 0 bien, 1 fin, 2 lleno, FFh error */
+static uint8_t f_rw(uint32_t rec, uint8_t write) {
+    uint32_t off = rec << 7, size = get32(&fcb[F_SIZE]);
+    uint32_t dst = TPA_PHYS + dma_addr;
+    uint16_t cl = fcb[F_CL] | (fcb[F_CL + 1] << 8), n;
+    uint8_t r;
+    if (!(fcb[F_FLAGS] & FL_OPEN) || !fcb_drive()) return 0xFF;
+    if (!write) {
+        if (off >= size) return 1;
+        n = (size - off) >= 128 ? 128 : (uint16_t)(size - off);
+        r = fat_io(&cl, off, n, dst, 0);
+        if (r == FAT_ERR_EOF) return 1;
+        if (r) return 0xFF;
+        if (n < 128) dma_fill(dst + n, 0x1A, 128 - n);
+        return 0;
+    }
+    r = fat_io(&cl, off, 128, dst, 1);
+    if (r == FAT_ERR_FULL) return 2;
+    if (r) return 0xFF;
+    fcb[F_CL] = (uint8_t)cl; fcb[F_CL + 1] = cl >> 8;
+    if (off + 128 > size) put32(&fcb[F_SIZE], off + 128);
+    fcb[F_FLAGS] |= FL_DIRTY;
+    return 0;
+}
+
+static uint8_t f_seq(uint8_t write) {
+    uint32_t rec = seq_rec();
+    uint8_t r = f_rw(rec, write);
+    if (r == 0) set_rec(rec + 1);
+    update_rc();
+    return r;
+}
+
+static uint8_t f_random(uint8_t write) {
+    uint32_t rec = fcb[F_R0] | ((uint16_t)fcb[F_R0 + 1] << 8) | ((uint32_t)(fcb[F_R0 + 2] & 3) << 16);
+    uint8_t r = f_rw(rec, write);
+    set_rec(rec);                                   /* la secuencial sigue de aqui */
+    update_rc();
+    return r;
+}
+
+static void f_size(void) {
+    uint32_t recs = (get32(&fcb[F_SIZE]) + 127) >> 7;
+    if (fcb_drive()) {
+        uint8_t ent[32];
+        int16_t idx = fat_find11(&fcb[F_NAME], 0, ent);
+        if (idx >= 0 && !(fcb[F_FLAGS] & FL_OPEN)) recs = (get32(&ent[28]) + 127) >> 7;
+    }
+    fcb[F_R0] = recs; fcb[F_R0 + 1] = recs >> 8; fcb[F_R0 + 2] = recs >> 16;
+}
 
 /* ---- consola */
 static void out_char(uint8_t c) {
@@ -100,14 +290,37 @@ static uint16_t bdos_c(void) {
     case 10: read_line(de); return 0;
     case 11: return kbd_hit() ? 0xFF : 0;
     case 12: return 0x0022;                     /* CP/M 2.2 */
-    case 13: dma_addr = 0x80; return 0;
+    case 13: dma_addr = 0x80; fat_invalidate(); return 0;
     case 14: dos_drive = e & 1; return 0;
     case 24: return 0x0003;                     /* unidades A: y B: */
     case 25: return dos_drive;
     case 26: dma_addr = de; return 0;
     case 32: return 0;                          /* numero de usuario */
+    case 15: case 16: case 17: case 19: case 20: case 21: case 22: case 23:
+    case 33: case 34: case 35: case 36: case 40: {
+        uint8_t res = 0, len = (fn >= 33) ? 36 : 33;
+        from_tpa(de, fcb, len);
+        switch (fn) {
+        case 15: res = f_open(); break;
+        case 16: res = f_close(); break;
+        case 17: res = f_search(1); break;
+        case 19: res = f_delete(); break;
+        case 20: res = f_seq(0); break;
+        case 21: res = f_seq(1); break;
+        case 22: res = f_make(); break;
+        case 23: res = f_rename(); break;
+        case 33: res = f_random(0); break;
+        case 34: case 40: res = f_random(1); break;
+        case 35: f_size(); break;
+        case 36: { uint32_t rec = seq_rec(); fcb[F_R0] = rec; fcb[F_R0 + 1] = rec >> 8; fcb[F_R0 + 2] = rec >> 16; } break;
+        }
+        if (fn != 17) to_tpa(de, fcb, len);
+        return res;
+    }
+    case 18: return f_search(0);
+    case 37: return 0;                          /* reiniciar unidades */
+    case 28: case 29: case 30: case 31: case 27: return 0;
     default:
-        if (fn >= 15 && fn <= 40) return 0xFF;  /* ficheros: en la fase siguiente */
         return 0;
     }
 }
@@ -210,6 +423,7 @@ uint8_t dos_run(const char* name, const char* args) {
     _dos_bios_vec = (uint16_t)bios_c;
     dma_addr = 0x80;
     exec_asm();
+    fat_sync();                                 /* lo que el programa dejo a medias */
     if (con_getx()) con_putc('\n');
     return DOS_RUN_OK;
 }

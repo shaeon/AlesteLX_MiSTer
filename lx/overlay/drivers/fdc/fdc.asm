@@ -15,6 +15,8 @@
 ;   __fdc_read_multi  como __fdc_read, con B = numero de sectores seguidos de
 ;                     la misma pista y cara (1-9): una sola orden, sin perder
 ;                     vueltas entre sectores
+;   __fdc_write_multi lo mismo para escribir (HL = datos); error con ST1 bit 1
+;                     si el disco esta protegido
 ; =============================================================================
 
 module fdc_driver
@@ -25,7 +27,7 @@ SECTION DRV_VTABLE
 
 PUBLIC __fdc_vtable
 PUBLIC __fdc_detect, __fdc_install, __fdc_get_info, __fdc_command, __fdc_uninstall
-PUBLIC __fdc_read, __fdc_status, __fdc_read_multi
+PUBLIC __fdc_read, __fdc_status, __fdc_read_multi, __fdc_write_multi
 
 __fdc_vtable:
 __fdc_detect:    jp _undefined_method
@@ -36,6 +38,7 @@ __fdc_uninstall: jp _undefined_method
 __fdc_read:      jp _undefined_method
 __fdc_status:    jp _undefined_method
 __fdc_read_multi: jp _undefined_method
+__fdc_write_multi: jp _undefined_method
 __fdc_vtable_end:
 
 SECTION DRV_CODE

@@ -66,7 +66,7 @@ rm -rf build/dos
 mkdir -p build/dos
 cp dos/*.c dos/*.h dos/*.asm build/dos/
 cd build/dos
-zcc +z80 -vn -O3 --no-crt -m -I../src/include -I../src -s -clib=sdcc_iy -o lxdos \
+zcc +z80 -vn -O3 --no-crt -m -I../src/include -I../src -s -clib=sdcc_iy -DFAT_WRITE -o lxdos \
     sections.asm crt0_dos.asm ../bios_abi.asm \
     ../src/src/drivers/int.c ../src/src/drivers/timer.c ../src/src/drivers/dma.c \
     ../src/src/drivers/kbd.c ../src/src/drivers/snd.c ../src/src/drivers/fdc.c \

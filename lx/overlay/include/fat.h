@@ -15,6 +15,8 @@
 #define FAT_ERR_DISK    1   /* error de la disquetera */
 #define FAT_ERR_FORMAT  2   /* no es un disco FAT12 */
 #define FAT_ERR_NOFILE  3   /* no existe */
+#define FAT_ERR_EOF     4   /* lectura pasado el final */
+#define FAT_ERR_FULL    5   /* disco lleno */
 
 typedef struct {
     char     name[13];      /* "NOMBRE.EXT" */
@@ -33,5 +35,24 @@ uint16_t fat_free_kb(void);
 /** Lee len bytes desde el desplazamiento off del fichero que empieza en el
     cluster cl0 y los deja en memoria fisica */
 uint8_t fat_read_at(uint16_t cl0, uint32_t off, uint16_t len, uint32_t phys);
+
+#ifdef FAT_WRITE
+/* ---- Escritura (LX-DOS). Los nombres van en 11 caracteres ("NOMBRE  EXT"). */
+uint8_t fat_use(uint8_t drive);         /* monta si no es la unidad montada */
+void    fat_invalidate(void);           /* sincroniza y fuerza volver a montar */
+uint8_t fat_sync(void);                 /* sector en cache y FAT, al disco */
+/** Lee (write = 0) o escribe len bytes en el desplazamiento off del fichero
+    cuyo primer cluster es *cl0 (0 = vacio: se reserva al escribir); los
+    clusteres que faltan se reservan al escribir */
+uint8_t fat_io(uint16_t* cl0, uint32_t off, uint16_t len, uint32_t phys, uint8_t write);
+/** Busca desde la entrada from un nombre ('?' = cualquiera); copia la entrada
+    (32 bytes) si ent no es 0. Devuelve la entrada o -1 */
+int16_t fat_find11(const uint8_t* pat, int16_t from, uint8_t* ent);
+int16_t fat_create11(const uint8_t* name);          /* entrada nueva vacia o -1 */
+uint8_t fat_set_entry(int16_t idx, uint16_t cl, uint32_t size);
+uint8_t fat_delete_idx(int16_t idx);                /* y libera sus clusteres */
+uint8_t fat_rename_idx(int16_t idx, const uint8_t* name);
+uint8_t fat_name11(const char* s, uint8_t* n11);   /* 1 si lleva comodines */
+#endif
 
 #endif
