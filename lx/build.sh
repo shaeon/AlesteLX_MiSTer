@@ -32,7 +32,7 @@ zcc +z80 -vn -O3 --no-crt -m -Iinclude -I. -s -clib=sdcc_iy -o build/aleste \
     drivers/timer/timer.asm drivers/timer/timer_lx.asm \
     drivers/dma/dma.asm drivers/dma/dma_lx.asm \
     drivers/kbd/kbd.asm drivers/kbd/kbd_lx.asm \
-    drivers/snd/snd.asm drivers/snd/snd_ms2.asm bios/irqsave.asm \
+    drivers/snd/snd.asm drivers/snd/snd_ms2.asm bios/irqsave.asm bios/boot.asm bios/dosgate.asm \
     drivers/fdc/fdc.asm drivers/fdc/fdc_765.asm \
     src/drivers/mmu.c src/drivers/mmu_mem.c src/drivers/crtc.c src/drivers/palette.c \
     src/drivers/vbuf.c src/drivers/audio.c \
@@ -51,3 +51,29 @@ put DRV_VTABLE     0xFD00
 [ "$(wc -c < build/LX.ROM)" -eq 65536 ] || { echo "LX.ROM no mide 64 KB: alguna seccion se sale"; exit 1; }
 cp build/LX.ROM ../LX.ROM
 echo "lx/build/LX.ROM"
+
+# ---- ABI de la ROM: los simbolos publicos de la parte residente (ventana 3:
+# drivers, sus VTables, datos y fuente), para los programas que se enlazan
+# aparte (LXDOS.SYS). Cambian si cambia la ROM: se compilan juntos.
+awk '$1 !~ /_(head|tail|size)$/ && $6 == "public," && ($9 == "DRV_CODE," || $9 == "DRV_DATA," || $9 == "DRV_VTABLE," || $9 == "FONT_DATA,") {
+        a = substr($3, 2); print "PUBLIC " $1; print "defc " $1 " = 0x" a }' \
+    build/aleste.map > ../bios_abi.asm
+echo "lx/build/bios_abi.asm: $(grep -c '^PUBLIC' ../bios_abi.asm) simbolos"
+
+# ---- LXDOS.SYS: el sistema que la ROM arranca del disco (lx/dos)
+cd ../..
+rm -rf build/dos
+mkdir -p build/dos
+cp dos/*.c dos/*.h dos/*.asm build/dos/
+cd build/dos
+zcc +z80 -vn -O3 --no-crt -m -I../src/include -I../src -s -clib=sdcc_iy -o lxdos \
+    sections.asm crt0_dos.asm ../bios_abi.asm \
+    ../src/src/drivers/int.c ../src/src/drivers/timer.c ../src/src/drivers/dma.c \
+    ../src/src/drivers/kbd.c ../src/src/drivers/snd.c ../src/src/drivers/fdc.c \
+    ../src/src/drivers/vbuf.c ../src/src/console.c ../src/src/fat.c bdos.c main.c
+cat lxdos_code_crt_start.bin > LXDOS.SYS
+head -c $((0x100 - $(wc -c < lxdos_code_crt_start.bin))) /dev/zero >> LXDOS.SYS
+cat lxdos_code_compiler.bin >> LXDOS.SYS
+[ "$(wc -c < LXDOS.SYS)" -le 32768 ] || { echo "LXDOS.SYS pasa de 32 KB"; exit 1; }
+cp LXDOS.SYS ../LXDOS.SYS
+echo "lx/build/LXDOS.SYS: $(wc -c < LXDOS.SYS) bytes"

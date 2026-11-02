@@ -93,20 +93,8 @@ uint8_t fat_find(const char* name, fat_entry_t* e) {
     return find_ok ? FAT_OK : FAT_ERR_NOFILE;
 }
 
-/* Bufer de pista: la ventana 2 (8000h) pasa un momento del video (banco 10h,
-   C40000) al banco 11h (C44000), libre; la DMA lo lleva luego a su sitio */
-#define TRK_CPU    ((void*)0x8000)
-#define TRK_PHYS   0xC44000UL
-#define VRAM_BANK  0x10
-#define TRK_BANK   0x11
-static void win2(uint8_t bank) __z88dk_fastcall __naked {
-    bank;
-    __asm
-        ld a, l
-        out (0xFE), a
-        ret
-    __endasm;
-}
+/* Bufer de pista en la memoria de la BIOS; la DMA lo lleva luego a su sitio */
+static uint8_t trk[9 * 512];
 
 /* Lee n sectores desde lba (pueden cruzar pistas) y los deja en phys */
 static uint8_t read_run(uint16_t lba, uint16_t n, uint32_t phys, uint32_t* left) {
@@ -119,16 +107,14 @@ static uint8_t read_run(uint16_t lba, uint16_t n, uint32_t phys, uint32_t* left)
         uint8_t r, tries;
         uint16_t bytes;
         if (cnt > n) cnt = n;
-        win2(TRK_BANK);
         for (tries = 0; tries < 3; tries++) {
-            r = fdc_read_multi(drv, track, head, sidx + 1, cnt, TRK_CPU);
+            r = fdc_read_multi(drv, track, head, sidx + 1, cnt, trk);
             if (!r) break;
         }
-        win2(VRAM_BANK);
         if (r) return FAT_ERR_DISK;
         bytes = (uint16_t)cnt * 512;
         if (bytes > *left) bytes = (uint16_t)*left;
-        dma_copy(TRK_PHYS, phys, bytes);
+        dma_copy(dma_phys(trk), phys, bytes);
         phys += bytes; *left -= bytes;
         lba += cnt; n -= cnt;
     }
@@ -149,6 +135,33 @@ uint8_t fat_load(const fat_entry_t* e, uint32_t phys, void (*progress)(uint16_t 
         cl = next_cluster(cl);
     }
     return left ? FAT_ERR_DISK : FAT_OK;
+}
+
+/* Lee len bytes del fichero que empieza en el cluster cl0, desde el
+   desplazamiento off, y los deja en memoria fisica (por la DMA) */
+uint8_t fat_read_at(uint16_t cl0, uint32_t off, uint16_t len, uint32_t phys) {
+    uint16_t cbytes = (uint16_t)spc * 512, cl = cl0;
+    if (!mounted) return FAT_ERR_FORMAT;
+    while (off >= cbytes) {
+        cl = next_cluster(cl);
+        if (cl < 2 || cl >= 0xFF8) return FAT_ERR_DISK;
+        off -= cbytes;
+    }
+    while (len) {
+        uint16_t in = (uint16_t)off;                     /* dentro del cluster */
+        uint16_t lba = data_lba + (cl - 2) * spc + (in >> 9);
+        uint16_t so = in & 511, n = 512 - so;
+        if (n > len) n = len;
+        if (fdc_read_lba(drv, lba, sec)) return FAT_ERR_DISK;
+        dma_copy(dma_phys(sec) + so, phys, n);
+        phys += n; len -= n; off += n;
+        if (off >= cbytes) {
+            off -= cbytes;
+            cl = next_cluster(cl);
+            if (len && (cl < 2 || cl >= 0xFF8)) return FAT_ERR_DISK;
+        }
+    }
+    return FAT_OK;
 }
 
 uint16_t fat_free_kb(void) {

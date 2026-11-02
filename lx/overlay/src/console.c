@@ -4,7 +4,6 @@
  * Shaeon (Carlos Palmero).
  */
 #include "console.h"
-#include "drivers/vbuf.h"
 #include "drivers/dma.h"
 #include "drivers/kbd.h"
 
@@ -14,8 +13,18 @@
 
 static uint8_t cx, cy, win_top, win_bot = CON_ROWS - 1;
 
+/* La fuente (FONT_DATA, ventana 3) empieza en el caracter 20h, 8 bytes por
+   caracter; cada uno se copia con la DMA a sus 8 lineas de video: la consola
+   no mapea la memoria de video en ninguna ventana. */
+extern uint8_t _scr_font_data[];
+static uint32_t font_phys;
+
 static void draw(char c, uint8_t x, uint8_t y) {
-    vbuf_draw_char(&_scr_font_data, c, (uint16_t)x * 8, (uint16_t)y * 8);
+    uint8_t ch = (uint8_t)c;
+    uint32_t dst = VRAM_PHYS + (uint16_t)y * ROW_BYTES + x;
+    if (!font_phys) font_phys = dma_phys(_scr_font_data);
+    if (ch < 0x20) ch = 0x20;
+    dma_rect(font_phys + (uint16_t)(ch - 0x20) * 8, dst, 1, 8, 1, LINE_BYTES, DMA_MODE_COPY, 0);
 }
 
 static void clear_rows(uint8_t from, uint8_t to) {

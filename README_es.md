@@ -28,7 +28,9 @@ El Aleste 520EX sigue siendo un core aparte:
 Copia el `.rbf` a `_Computer/` y `sd/LX.ROM` como `games/AlesteLX/boot.rom`.
 Para el modo compatible con el Aleste 520EX (orden `520EX`), `boot.rom` debe
 llevar detrás la ROM del 520EX: `copy /b LX.ROM + AL512.BIN boot.rom`.
-Al arrancar sale el monitor (`LX>`); `HELP` lista las órdenes. Para oír
+Si en la unidad A hay un disco con `LXDOS.SYS` (por ejemplo `sd/LXDOS.DSK`),
+arranca el **LX-DOS**, compatible con los programas .COM de CP/M y MSX-DOS 1
+(por ahora, los de consola). Si no, sale el monitor (`LX>`); `HELP` lista las órdenes. Para oír
 música: monta un disco con canciones (por ejemplo `mag-player.dsk` del
 repositorio Aleste520EX de hww) en "Mount Drive A:", `DIR` y `MOD AXELF.STM`;
 o carga un MOD con "Load MOD" en el OSD y escribe `MOD`.

@@ -130,6 +130,48 @@ por el temporizador de la MS2), DUMP (memoria física por la DMA), KEYS
 sincronizado con el VBlank). La primera línea lleva el tiempo desde el
 arranque.
 
+## LX-DOS
+
+Sistema de disco propio del LX, compatible con los programas de CP/M 2.2 y
+MSX-DOS 1. La ROM, al arrancar (o con la orden `BOOT` del monitor), busca
+`LXDOS.SYS` en la unidad A; si está, lo carga en el slot 3, bancos 20h-21h
+(C80000), y `__boot_jump` (`bios/boot.asm`, en la ventana 3) pone los bancos
+20h-22h en las ventanas 0-2 y salta a 0000h. Sin disco de sistema queda el
+monitor. `sd/LXDOS.DSK` es un disco de arranque con `HELLO.COM` de prueba.
+
+`LXDOS.SYS` (`lx/dos`) se compila aparte y usa los drivers de la ROM por sus
+direcciones fijas: `lx/build.sh` saca del mapa de la ROM sus símbolos
+públicos residentes (ventana 3) a `lx/build/bios_abi.asm`. Las dos cosas se
+compilan juntas.
+
+Mapas de memoria (slot 3):
+
+| | Ventanas 0-2 | Ventana 3 |
+|---|---|---|
+| ROM (monitor) | bancos 0-2 | drivers (banco 3) |
+| LX-DOS | bancos 20h-22h (pila en C000h) | drivers |
+| programa .COM | bancos 24h-26h (física C90000) | drivers |
+
+La ventana 3 es la única común, así que allí están las puertas
+(`bios/dosgate.asm`): `__dos_exec` (pone el mapa del programa y salta a
+0100h), `__dos_bdos_gate` (`CALL 5`), `__dos_bios_gate` (tabla del BIOS de
+CP/M), `__dos_isr_gate` (interrupciones con el programa en marcha) y
+`__dos_wboot_gate` (fin del programa). El LX-DOS ve la memoria del programa
+con la DMA (física = C90000 + dirección).
+
+Página cero del programa: 0000h `JP BF06h` (WBOOT), 0005h `JP BF00h` (BDOS),
+0038h a la puerta de interrupciones, FCB en 005Ch y 006Ch, línea de órdenes
+en 0080h. La TPA llega a BF00h: `JP __dos_bdos_gate` en BF00h, la tabla del
+BIOS de CP/M en BF03h y sus entradas (`LD A,n / JP __dos_bios_gate`) en
+BF40h.
+
+Funciones: consola (1, 2, 6, 7, 8, 9, 10, 11), versión (12, CP/M 2.2),
+unidades (13, 14, 24, 25), DMA (26) y usuario (32); BIOS CONST, CONIN, CONOUT
+y WBOOT. Las de ficheros (15-40) devuelven error por ahora.
+
+Órdenes del LX-DOS: `A:`, `B:`, `DIR`, `TYPE`, `CLS`, `VER`, `MONITOR`,
+`HELP` y `nombre [argumentos]` para ejecutar `NOMBRE.COM`.
+
 ## Mapa de E/S nativo
 
 Puerto `F1h` = página MMIO (se puede leer); los puertos `00h-7Fh` acceden a

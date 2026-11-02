@@ -43,3 +43,5 @@ c5_pin_model_dump.txt
 
 # Simulacion
 sim/obj/
+
+__pycache__/

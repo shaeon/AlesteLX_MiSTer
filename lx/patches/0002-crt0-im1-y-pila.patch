@@ -1,5 +1,5 @@
---- a/asm/crt0_aleste.asm	2026-11-01 20:41:21.329260685 +0000
-+++ b/asm/crt0_aleste.asm	2026-11-01 20:41:21.341651958 +0000
+--- a/asm/crt0_aleste.asm
++++ b/asm/crt0_aleste.asm
 @@ -1,4 +1,5 @@
  EXTERN _main
 +EXTERN __int_isr      ; despachador del driver de interrupciones (drivers/int)
@@ -18,3 +18,13 @@
      
  ; Заполняем до 0x0066
      defs 0x0066 - $
+@@ -30,7 +30,8 @@
+ start:
+     ; Инициализация Aleste
+     di
+-    ld sp, 0x7F00
++    ld sp, 0xBFF0         ; pila arriba de la ventana 2 (memoria de la BIOS; el video
++                          ; se dibuja con la DMA y no ocupa ninguna ventana)
+     ld a, 0x00
+     out (0xFC), a
+     ld a, 0x01

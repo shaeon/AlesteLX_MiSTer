@@ -30,5 +30,8 @@ uint8_t fat_find(const char* name, fat_entry_t* e);
 /** Carga el fichero en memoria fisica; progress (puede ser 0) recibe los KB */
 uint8_t fat_load(const fat_entry_t* e, uint32_t phys, void (*progress)(uint16_t kb));
 uint16_t fat_free_kb(void);
+/** Lee len bytes desde el desplazamiento off del fichero que empieza en el
+    cluster cl0 y los deja en memoria fisica */
+uint8_t fat_read_at(uint16_t cl0, uint32_t off, uint16_t len, uint32_t phys);
 
 #endif

@@ -9,7 +9,6 @@
 #include <stdint.h>
 #include "drivers/mmu.h"
 #include "drivers/crtc.h"
-#include "drivers/vbuf.h"
 #include "drivers/palette.h"
 #include "drivers/int.h"
 #include "drivers/timer.h"
@@ -116,6 +115,7 @@ static void cmd_help(void) {
     con_puts("DUMP addr         64 bytes of physical memory (24-bit hex address)\n");
     con_puts("KEYS              keyboard matrix (ESC exits)\n");
     con_puts("DEMO              bouncing block drawn by the blitter (any key exits)\n");
+    con_puts("BOOT              boot LXDOS.SYS from the disk in drive A\n");
     con_puts("520EX             start the Aleste 520EX compatible mode (AlesteDOS,\n");
     con_puts("                  MSX-DOS and CPC software); OSD reset returns here\n");
 }
@@ -329,6 +329,40 @@ static void cmd_520ex(void) {
     jump_520ex();
 }
 
+/* ---- Arranque del sistema del disco (LXDOS.SYS)
+   Se carga en el slot 3, bancos 20h-21h (C80000, hasta 32 KB) y
+   __boot_jump (bios/boot.asm, residente) lo pone en las ventanas 0 y 1 y
+   salta a 0000h. Vuelve si no hay disco o no esta el fichero. */
+#define SYS_PHYS 0xC80000UL
+#define SYS_MAX  0x8000UL
+static void boot_jump_asm(void) __naked {
+    __asm
+        EXTERN __boot_jump
+        jp __boot_jump
+    __endasm;
+}
+
+static uint8_t try_boot(uint8_t verbose) {
+    fat_entry_t e;
+    uint8_t r = fat_mount(0);
+    if (!r) r = fat_find("LXDOS.SYS", &e);
+    if (r) {
+        if (verbose) disk_error(r);
+        return 0;
+    }
+    if (e.size == 0 || e.size > SYS_MAX) { con_puts("LXDOS.SYS is too big (32 KB max).\n"); return 0; }
+    con_puts("Booting LXDOS.SYS...\n");
+    tune_stop();
+    mod_stop();
+    if (fat_load(&e, SYS_PHYS, 0)) { con_puts("Disk error while loading LXDOS.SYS.\n"); return 0; }
+    int_uninstall();                    /* las rutinas de la ROM dejan de valer */
+    timer_uninstall();
+    snd_uninstall();
+    dma_wait();
+    boot_jump_asm();
+    return 1;
+}
+
 static char line[64];
 
 void main(void) {
@@ -336,8 +370,7 @@ void main(void) {
 
     mmu_install();
     crtc_install();
-    vbuf_activate_driver(&_drv_16k1b_vtable);
-    vbuf_init();
+    crtc_set_mode(3);                   /* 640x200, 1 bit, lineal, video en C40000 */
     palette_activate_12bit();
     palette_install();
     palette_set_color_12b(0, 0x0026);   /* fondo: azul oscuro */
@@ -351,8 +384,6 @@ void main(void) {
     fdc_activate_765();
     ok = int_detect() && timer_detect() && dma_detect() && kbd_detect() && snd_detect() && fdc_detect();
     if (!ok) {
-        vbuf_clear(0x00);
-        vbuf_draw_char(&_scr_font_data, '?', 0, 0);
         while (1) ;                     /* sin los perifericos del modo LX */
     }
     int_install();
@@ -372,6 +403,7 @@ void main(void) {
     last_ms = timer_get_ms();
     con_set_idle(status_idle);
     beep(150);
+    if (!try_boot(0)) con_puts("No system disk in drive A.\n");
     con_puts("Type HELP for the list of commands.\n\n");
 
     while (1) {
@@ -389,6 +421,7 @@ void main(void) {
         else if (streq(cmd, "mod")) cmd_mod(arg);
         else if (streq(cmd, "dir")) cmd_dir();
         else if (streq(cmd, "520ex")) cmd_520ex();
+        else if (streq(cmd, "boot")) try_boot(1);
         else if (streq(cmd, "load")) cmd_load(arg);
         else if (streq(cmd, "play")) { mod_stop(); tune_start(); con_puts("Ode to Joy (Beethoven). STOP to stop.\n"); }
         else if (streq(cmd, "stop")) { tune_stop(); mod_stop(); }

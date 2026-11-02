@@ -157,8 +157,16 @@ lb_sh:
     sla c
     jr lb_sh
 
-; ---- despachador de IM 1
+; ---- IM 1: despacha y vuelve
 int_lx_isr:
+    call __int_lx_dispatch
+    ei
+    reti
+
+; ---- despachador (sin EI/RETI), tambien para las puertas del LX-DOS
+;      (bios/dosgate.asm), que lo llaman con otro mapa de memoria
+PUBLIC __int_lx_dispatch
+__int_lx_dispatch:
     push af
     push bc
     push de
@@ -215,8 +223,7 @@ isr_done:
     pop de
     pop bc
     pop af
-    ei
-    reti
+    ret
 
 jp_hl:
     jp (hl)
