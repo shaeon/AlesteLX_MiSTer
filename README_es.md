@@ -14,9 +14,11 @@ hardware. Este core añade:
   con volumen por canal, bucle e interrupciones.
 - **DMA / blitter**: copia, relleno y copia con transparente de rectángulos.
 - **Teclado** PS/2 con cola de eventos y lectura de la matriz del 520EX.
+- **Disquetera** (el uPD765 del 520EX) también en modo nativo.
 - La **BIOS LX** de hww arreglada y ampliada con drivers de interrupciones,
   temporizador, DMA, teclado y sonido, una consola de 80x25, un pequeño
-  monitor y un **reproductor de MOD** de ProTracker.
+  monitor, **disquetera** con lectura de discos MSX-DOS (FAT12) y un
+  **reproductor de MOD y STM** (las canciones de la MagicSound del 520EX).
 
 El Aleste 520EX sigue siendo un core aparte:
 [Aleste520EX_MiSTer](https://github.com/shaeon/Aleste520EX_MiSTer).
@@ -24,8 +26,10 @@ El Aleste 520EX sigue siendo un core aparte:
 ## Uso
 
 Copia el `.rbf` a `_Computer/` y `sd/LX.ROM` como `games/AlesteLX/boot.rom`.
-Al arrancar sale el monitor (`LX>`); `HELP` lista las órdenes. Para oír un
-MOD de 4 canales: "Load MOD" en el OSD y la orden `MOD`.
+Al arrancar sale el monitor (`LX>`); `HELP` lista las órdenes. Para oír
+música: monta un disco con canciones (por ejemplo `mag-player.dsk` del
+repositorio Aleste520EX de hww) en "Mount Drive A:", `DIR` y `MOD AXELF.STM`;
+o carga un MOD con "Load MOD" en el OSD y escribe `MOD`.
 
 ## Organización
 

@@ -69,8 +69,20 @@ y `snd_step_period(periodo)` (periodo de Amiga PAL → paso). Las rutinas de un
 canal guardan y restauran el estado de las interrupciones, así que se pueden
 llamar desde una rutina de interrupción (un reproductor).
 
+**Disquetera** (`drivers/fdc`, `fdc.h`): uPD765 sin DMA (los bytes se
+recogen sondeando RQM/EXM). `fdc_read(unidad, pista, cara, sector, bufer)` y
+`fdc_read_lba(unidad, lba, bufer)` para discos de 720 KB (80 pistas, 2 caras,
+9 sectores de 512 bytes); recalibra la primera vez y solo busca si cambia de
+pista.
+
+**Ficheros** (`fat.h`, `src/fat.c`): discos MSX-DOS (FAT12), directorio raíz,
+solo lectura. `fat_mount(unidad)`, `fat_dir(rutina)`, `fat_find(nombre,
+&entrada)`, `fat_load(&entrada, direccion_fisica, progreso)` (cada sector va
+a su sitio por la DMA) y `fat_free_kb()`.
+
 **MOD** (`mod.h`, `src/mod.c`): reproductor de MOD de ProTracker de 4
-canales (M.K., M!K!, 4CHN, FLT4) que suena en segundo plano desde la
+canales (M.K., M!K!, 4CHN, FLT4) y de STM de Scream Tracker 2 (como las
+canciones del reproductor MAG de la MagicSound del 520EX) que suena en segundo plano desde la
 interrupción del temporizador de la MS2; las muestras se tocan directamente de
 la memoria donde está el MOD y cada fila del patrón se lee por DMA.
 `mod_load(direccion_fisica)`, `mod_play()`, `mod_stop()`, y `mod_title`,
@@ -78,7 +90,11 @@ la memoria donde está el MOD y cada fila del patrón se lee por DMA.
 1/2 portamento, 3 portamento hacia la nota, 4 vibrato, 5 y 6, 9
 desplazamiento de muestra, A volumen, B salto de posición, C volumen, D salto
 de patrón, F velocidad/tempo, E1/E2, EA/EB y EC. Sin afinación fina; muestras
-de hasta 64 KB. Canales 0 y 3 a la izquierda, 1 y 2 a la derecha.
+de hasta 64 KB. Canales 0 y 3 a la izquierda, 1 y 2 a la derecha. Los STM
+tienen los mismos patrones (64 filas x 4 canales x 4 bytes): cada fila se
+traduce al formato del MOD (la nota con la C2SPD del instrumento pasa a
+periodo de Amiga; efectos A velocidad, B, C, D, E, F, G, H y J) y la columna
+de volumen se aplica aparte; `mod_kind()` dice cuál es.
 
 **Consola** (`con.h`, `src/con.c`): texto de 80x25 sobre el modo 640x200 con
 el scroll y el borrado por la DMA; `con_putc`, `con_puts`, `con_putu`,
@@ -87,8 +103,10 @@ el scroll y el borrado por la DMA; `con_putc`, `con_puts`, `con_putu`,
 (`con_set_idle`).
 
 `main.c` instala todo, da un pitido por la Magic Sound 2 y arranca un monitor
-con las órdenes HELP, CLS, TIME, BEEP, MOD [dir] (toca el MOD cargado con
-"Load MOD" en el OSD, en 000000), PLAY/STOP (`src/tune.c`: el Himno de
+con las órdenes HELP, CLS, TIME, BEEP, DIR (ficheros del disco de la unidad
+A), LOAD fichero [dir] (lo carga en memoria física), MOD [fichero|dir] (carga
+y toca un MOD o STM del disco, o el que se cargó con "Load MOD" en el OSD, en
+000000), PLAY/STOP (`src/tune.c`: el Himno de
 la alegría a cuatro canales, con melodía, bajo, arpegio y charles, secuenciado
 por el temporizador de la MS2), DUMP (memoria física por la DMA), KEYS
 (la matriz del teclado) y DEMO (un bloque que rebota con el blitter
@@ -110,6 +128,7 @@ BIOS, C40000 la memoria de vídeo del modo 16k1b.
 | 6 | FF0300-FF037F | DMA / blitter | rtl/core/lx/lx_dma.sv |
 | 7 | FF0380-FF03FF | Magic Sound 2 | rtl/core/lx/lx_ms2.sv |
 | 8 | FF0400-FF047F | Teclado | rtl/core/lx/lx_input.sv |
+| 9 | FF0480-FF04FF | Disquetera (uPD765) | rtl/core/cpc/u765.sv |
 | 8 | FF0400-FF047F | Teclado | rtl/core/lx/lx_input.sv |
 
 ### PIC (página 0, 00-08)
@@ -167,6 +186,18 @@ Canal (+0 a +F): `+0` CTRL (bit 0 suena, 1 bucle, 2 16 bits, 3 IRQ al
 terminar), `+1..+3` START, `+4..+6` END (no incluido), `+7..+9` LOOP,
 `+A`/`+B` volumen izquierdo/derecho, `+C..+E` paso 8.16 (010000h = 48 kHz),
 `+F` estado. El byte alto (+3, +6, +9, +E) aplica el valor.
+
+### Disquetera (página 9)
+
+El mismo uPD765 del modo legacy (puertos FB7E/FB7F y FA7E del CPC), con las
+imágenes que se montan en el OSD (Mount Drive A:/B:; las de 720 KB de
+MSX-DOS del 520EX, o DSK/EDSK del CPC). Su interrupción va a la línea 0.
+
+| Puerto | | |
+|---|---|---|
+| 00 | R | registro de estado principal (RQM, DIO, EXM, CB) |
+| 01 | RW | datos |
+| 02 | W | motor (D0) |
 
 ### Teclado (página 8)
 

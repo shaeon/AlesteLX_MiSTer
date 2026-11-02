@@ -897,11 +897,17 @@ assign tape_src = tape_running ? tape_read : tape_ext_s[1];
 assign tape_in = tape_src ^ tape_invert;
 
 // ---- Disquetera: uPD765 (rtl/cpc/u765.sv: el de Amstrad_MiST con INT y
-// con imagenes raw, ademas de DSK/EDSK). Puertos del CPC y del 520EX:
+// con imagenes raw, ademas de DSK/EDSK). Puertos del CPC y del 520EX (modo
+// legacy):
 //   FB7E estado, FB7F datos (A10=0, A8=1, A7=0; A0 elige)
 //   FA7E motor (A10=0, A8=0, A7=0; D0)
-wire fdc_cs = leg_io & ~sys_adr[10] &  sys_adr[8] & ~sys_adr[7];
-wire mot_cs = leg_io & ~sys_adr[10] & ~sys_adr[8] & ~sys_adr[7] & sys_we;
+// En modo nativo (Aleste LX), el mismo 765 en la pagina MMIO 9 (FF0480):
+//   00 estado, 01 datos, 02 motor (escritura, D0)
+wire fdc_page = ~legacy & (sys_adr[23:7] == 17'h1FE09);
+wire fdc_cs = (leg_io & ~sys_adr[10] &  sys_adr[8] & ~sys_adr[7]) |
+              (fdc_page & (sys_adr[6:1] == 6'd0));
+wire mot_cs = (leg_io & ~sys_adr[10] & ~sys_adr[8] & ~sys_adr[7] & sys_we) |
+              (fdc_page & (sys_adr[6:0] == 7'h02) & sys_we);
 logic       fdc_motor;
 logic       mot_ack;
 always_ff @(posedge clk_bus) begin

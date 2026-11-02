@@ -18,6 +18,8 @@
 #include "drivers/snd.h"
 #include "tune.h"
 #include "mod.h"
+#include "drivers/fdc.h"
+#include "fat.h"
 #include "con.h"
 
 #define VRAM_PHYS   0xC40000UL
@@ -106,8 +108,10 @@ static void cmd_help(void) {
     con_puts("TIME          milisegundos y VBlanks\n");
     con_puts("BEEP          pitido por la Magic Sound 2\n");
     con_puts("PLAY          musica a cuatro canales por la Magic Sound 2\n");
-    con_puts("MOD [dir]     toca un MOD de ProTracker de la memoria fisica (000000:\n");
-    con_puts("              el que se carga con \"Load MOD\" en el OSD)\n");
+    con_puts("DIR           ficheros del disco de la unidad A (MSX-DOS, 720 KB)\n");
+    con_puts("LOAD fic [dir]  carga un fichero del disco en memoria fisica (000000)\n");
+    con_puts("MOD [fic|dir] toca un MOD o STM: del disco, o de la memoria fisica\n");
+    con_puts("              (000000: el que se carga con \"Load MOD\" en el OSD)\n");
     con_puts("STOP          para la musica\n");
     con_puts("DUMP dir      64 bytes de memoria fisica (direccion hex de 24 bits)\n");
     con_puts("KEYS          matriz del teclado (ESC sale)\n");
@@ -189,16 +193,95 @@ static void cmd_demo(void) {
     con_clear();
 }
 
+/* ---- Disco */
+static void disk_error(uint8_t r) {
+    if (r == FAT_ERR_DISK)        con_puts("Error de disco: monta una imagen de 720 KB en el OSD (Mount Drive A:).\n");
+    else if (r == FAT_ERR_FORMAT) con_puts("El disco no es MSX-DOS (FAT12).\n");
+    else if (r == FAT_ERR_NOFILE) con_puts("No esta ese fichero.\n");
+}
+
+static uint8_t dir_n;
+static uint32_t dir_total;
+static uint8_t dir_cb(const fat_entry_t* e) {
+    uint8_t i;
+    con_puts(e->name);
+    for (i = 0; e->name[i]; i++) ;
+    for (; i < 13; i++) con_putc(' ');
+    if (e->attr & 0x10) con_puts("  <DIR>");
+    else { con_putu((uint16_t)((e->size + 1023) >> 10)); con_puts(" KB"); }
+    con_putc((++dir_n & 1) ? '\t' : '\n');
+    if (dir_n & 1) { uint8_t x = con_getx(); while (x < 40) { con_putc(' '); x++; } }
+    dir_total += e->size;
+    return 0;
+}
+
+static void cmd_dir(void) {
+    uint8_t r = fat_mount(0);
+    if (r) { disk_error(r); return; }
+    dir_n = 0; dir_total = 0;
+    fat_dir(dir_cb);
+    if (dir_n & 1) con_putc('\n');
+    con_putu(dir_n); con_puts(" ficheros, ");
+    con_putu((uint16_t)(dir_total >> 10)); con_puts(" KB; libres ");
+    con_putu(fat_free_kb()); con_puts(" KB\n");
+}
+
+static void progress(uint16_t kb) {
+    con_putc('\r'); con_puts("  "); con_putu(kb); con_puts(" KB");
+}
+
+/* Carga 'name' del disco en 'phys'; 1 si va bien */
+static uint8_t load_file(const char* name, uint32_t phys) {
+    fat_entry_t e;
+    uint8_t r = fat_mount(0);
+    if (!r) r = fat_find(name, &e);
+    if (!r) {
+        con_puts("Cargando "); con_puts(e.name); con_puts(" en ");
+        con_puthex((uint8_t)(phys >> 16)); con_puthex((uint8_t)(phys >> 8)); con_puthex((uint8_t)phys);
+        con_puts(" ("); con_putu((uint16_t)((e.size + 1023) >> 10)); con_puts(" KB)\n");
+        r = fat_load(&e, phys, progress);
+        con_putc('\r'); con_puts("         \r");
+    }
+    if (r) { disk_error(r); return 0; }
+    return 1;
+}
+
+static uint8_t has_dot(const char* a) {
+    while (*a && *a != ' ') if (*a++ == '.') return 1;
+    return 0;
+}
+
+static void first_word(char* dst, const char* src, uint8_t max) {
+    uint8_t n = 0;
+    while (*src && *src != ' ' && n + 1 < max) dst[n++] = *src++;
+    dst[n] = 0;
+}
+
+static void cmd_load(const char* arg) {
+    char name[13];
+    const char* rest;
+    if (!*arg) { con_puts("LOAD fichero [direccion]\n"); return; }
+    first_word(name, arg, sizeof(name));
+    rest = skip_word(arg);
+    load_file(name, *rest ? parse_hex(rest) : 0);
+}
+
 static void cmd_mod(const char* arg) {
-    uint32_t a = *arg ? parse_hex(arg) : 0;
+    uint32_t a = 0;
     tune_stop();
+    mod_stop();
+    if (*arg && has_dot(arg)) {
+        char name[13];
+        first_word(name, arg, sizeof(name));
+        if (!load_file(name, 0)) return;
+    } else if (*arg) a = parse_hex(arg);
     if (mod_load(a) != MOD_OK) {
-        con_puts("No hay un MOD de 4 canales en ");
+        con_puts("No hay un MOD de 4 canales ni un STM en ");
         con_puthex((uint8_t)(a >> 16)); con_puthex((uint8_t)(a >> 8)); con_puthex((uint8_t)a);
-        con_puts(" (carga uno con \"Load MOD\" en el OSD).\n");
+        con_puts(" (carga uno con \"Load MOD\" en el OSD o MOD FICHERO.STM).\n");
         return;
     }
-    con_puts("\""); con_puts(mod_title()); con_puts("\": ");
+    con_puts(mod_kind()); con_puts(" \""); con_puts(mod_title()); con_puts("\": ");
     con_putu(mod_length()); con_puts(" posiciones, ");
     con_putu(mod_patterns()); con_puts(" patrones. STOP para parar.\n");
     mod_play();
@@ -223,7 +306,8 @@ void main(void) {
     dma_activate_lx();
     kbd_activate_lx();
     snd_activate_ms2();
-    ok = int_detect() && timer_detect() && dma_detect() && kbd_detect() && snd_detect();
+    fdc_activate_765();
+    ok = int_detect() && timer_detect() && dma_detect() && kbd_detect() && snd_detect() && fdc_detect();
     if (!ok) {
         vbuf_clear(0x00);
         vbuf_draw_char(&_scr_font_data, '?', 0, 0);
@@ -234,6 +318,7 @@ void main(void) {
     dma_install();
     kbd_install();
     snd_install();
+    fdc_install();
     int_set_handler(INT_LINE_VBLANK, on_vblank);
     int_enable(INT_LINE_VBLANK);
 
@@ -241,7 +326,7 @@ void main(void) {
     con_puts("ALESTE LX BIOS - MiSTer");
     dma_fill(VRAM_PHYS + 11 * VRAM_STRIDE, 0xFF, VRAM_STRIDE);   /* raya bajo el titulo */
     con_set_window(2, CON_ROWS - 1);
-    con_puts("Drivers: INT (PIC LX), TIMER, DMA (blitter), KBD (PS/2), SND (Magic Sound 2)\n");
+    con_puts("Drivers: INT (PIC LX), TIMER, DMA (blitter), KBD (PS/2), SND (MS2), FDC\n");
     last_ms = timer_get_ms();
     con_set_idle(status_idle);
     beep(150);
@@ -260,6 +345,8 @@ void main(void) {
         else if (streq(cmd, "time")) cmd_time();
         else if (streq(cmd, "beep")) beep(150);
         else if (streq(cmd, "mod")) cmd_mod(arg);
+        else if (streq(cmd, "dir")) cmd_dir();
+        else if (streq(cmd, "load")) cmd_load(arg);
         else if (streq(cmd, "play")) { mod_stop(); tune_start(); con_puts("Himno de la alegria (Beethoven). STOP para parar.\n"); }
         else if (streq(cmd, "stop")) { tune_stop(); mod_stop(); }
         else if (streq(cmd, "dump")) cmd_dump(arg);

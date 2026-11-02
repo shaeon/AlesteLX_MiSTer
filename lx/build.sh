@@ -33,10 +33,11 @@ zcc +z80 -vn -O3 --no-crt -m -Iinclude -I. -s -clib=sdcc_iy -o build/aleste \
     drivers/dma/dma.asm drivers/dma/dma_lx.asm \
     drivers/kbd/kbd.asm drivers/kbd/kbd_lx.asm \
     drivers/snd/snd.asm drivers/snd/snd_ms2.asm bios/irqsave.asm \
+    drivers/fdc/fdc.asm drivers/fdc/fdc_765.asm \
     src/drivers/mmu.c src/drivers/mmu_mem.c src/drivers/crtc.c src/drivers/palette.c \
     src/drivers/vbuf.c src/drivers/audio.c \
-    src/drivers/int.c src/drivers/timer.c src/drivers/dma.c src/drivers/kbd.c src/drivers/snd.c \
-    src/con.c src/tune.c src/mod.c main.c
+    src/drivers/int.c src/drivers/timer.c src/drivers/dma.c src/drivers/kbd.c src/drivers/snd.c src/drivers/fdc.c \
+    src/con.c src/tune.c src/mod.c src/fat.c main.c
 # LX.ROM: 64 KB con cada seccion en su direccion (sin Python: vale en la
 # imagen de Docker de z88dk)
 head -c 65536 /dev/zero > build/LX.ROM
