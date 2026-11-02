@@ -99,7 +99,7 @@ traduce al formato del MOD (la nota con la C2SPD del instrumento pasa a
 periodo de Amiga; efectos A velocidad, B, C, D, E, F, G, H y J) y la columna
 de volumen se aplica aparte; `mod_kind()` dice cuál es.
 
-**Consola** (`con.h`, `src/con.c`): texto de 80x25 sobre el modo 640x200 con
+**Consola** (`console.h`, `src/console.c`): texto de 80x25 sobre el modo 640x200 con
 el scroll y el borrado por la DMA; `con_putc`, `con_puts`, `con_putu`,
 `con_puthex`, `con_gotoxy`, una ventana de scroll (`con_set_window`), y
 `con_getc`/`con_gets` con cursor y una rutina que se llama mientras espera

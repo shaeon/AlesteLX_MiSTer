@@ -1,13 +1,13 @@
 /**
- * @file con.h
+ * @file console.h
  * @brief Consola de texto de 80x25 sobre el video 16k1b (640x200)
  * Shaeon (Carlos Palmero), para el modo LX del core aleste520ex.
  *
  * Dibuja con vbuf_draw_char y hace el scroll y el borrado con la DMA.
  * Necesita los drivers vbuf (16k1b), dma y, para leer, kbd.
  */
-#ifndef __CON_H__
-#define __CON_H__
+#ifndef __CONSOLE_H__
+#define __CONSOLE_H__
 
 #include <stdint.h>
 

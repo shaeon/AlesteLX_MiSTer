@@ -1,9 +1,9 @@
 /**
- * @file con.c
- * @brief Consola de texto de 80x25 (ver con.h)
+ * @file console.c
+ * @brief Consola de texto de 80x25 (ver console.h)
  * Shaeon (Carlos Palmero).
  */
-#include "con.h"
+#include "console.h"
 #include "drivers/vbuf.h"
 #include "drivers/dma.h"
 #include "drivers/kbd.h"

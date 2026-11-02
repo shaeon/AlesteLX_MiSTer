@@ -20,7 +20,7 @@
 #include "mod.h"
 #include "drivers/fdc.h"
 #include "fat.h"
-#include "con.h"
+#include "console.h"
 
 #define VRAM_PHYS   0xC40000UL
 #define VRAM_STRIDE 80
