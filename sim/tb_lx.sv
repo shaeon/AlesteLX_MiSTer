@@ -179,6 +179,20 @@ module tb_lx;
         if (dut.ms2_out_l != 0 && (dut.ms2_out_l < 0) != a_neg) begin a_neg = dut.ms2_out_l < 0; a_flips++; end
     end
 
+    // Audio de la MS2 a un fichero (+pcm=FICHERO): estereo, 16 bits con signo,
+    // little endian, una muestra por tick de 48 kHz de la MS2
+    int pcm_fd = 0;
+    initial begin
+        string pf;
+        if ($value$plusargs("pcm=%s", pf)) pcm_fd = $fopen(pf, "wb");
+    end
+    always @(posedge clk_bus)
+        if (pcm_fd != 0 && dut.lx_sound2.tick) begin
+            $fwrite(pcm_fd, "%c%c%c%c", dut.ms2_out_l[7:0], dut.ms2_out_l[15:8],
+                                        dut.ms2_out_r[7:0], dut.ms2_out_r[15:8]);
+        end
+    final if (pcm_fd != 0) $fclose(pcm_fd);
+
     // Primeros accesos de la CPU al bus (+nbus=N)
     int n_bus = 0, max_bus = 0;
     int bus_t0_us = 0;
@@ -308,7 +322,7 @@ module tb_lx;
     end
 
     initial begin
-        #900ms;
+        #4000ms;
         $display("TIMEOUT de simulacion");
         $finish;
     end

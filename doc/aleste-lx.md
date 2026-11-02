@@ -57,6 +57,18 @@ control y bloq mayús; `kbd_hit()`, `kbd_getc()`, `kbd_shift_state()` y
 `kbd_row(fila)` para la matriz. Cursores, inicio/fin, páginas e insert dan
 80h-88h, suprimir 7Fh y F1-F10 90h-99h.
 
+**Sonido** (`drivers/snd`, `snd.h`): la Magic Sound 2. `snd_play(&voz)`
+programa un canal (inicio, fin, vuelta del bucle, volúmenes izquierdo y
+derecho, paso y 8/16 bits) y lo hace sonar desde el principio;
+`snd_stop(canal)`, `snd_set_volume(canal, izq, der)`, `snd_set_step(canal,
+paso)` (cambia el tono al vuelo), `snd_master(izq, der)`, `snd_status()` y
+`snd_set_timer(periodo, rutina)`, el temporizador de la MS2 en muestras de
+48 kHz (960 = 50 Hz, el ritmo de los MOD) por la línea 3. Ayudas:
+`snd_voice_set` (inicio, longitud y bucle como en un MOD), `snd_step_rate(hz)`
+y `snd_step_period(periodo)` (periodo de Amiga PAL → paso). Las rutinas de un
+canal guardan y restauran el estado de las interrupciones, así que se pueden
+llamar desde una rutina de interrupción (un reproductor).
+
 **Consola** (`con.h`, `src/con.c`): texto de 80x25 sobre el modo 640x200 con
 el scroll y el borrado por la DMA; `con_putc`, `con_puts`, `con_putu`,
 `con_puthex`, `con_gotoxy`, una ventana de scroll (`con_set_window`), y
@@ -64,7 +76,9 @@ el scroll y el borrado por la DMA; `con_putc`, `con_puts`, `con_putu`,
 (`con_set_idle`).
 
 `main.c` instala todo, da un pitido por la Magic Sound 2 y arranca un monitor
-con las órdenes HELP, CLS, TIME, BEEP, DUMP (memoria física por la DMA), KEYS
+con las órdenes HELP, CLS, TIME, BEEP, PLAY/STOP (`src/tune.c`: el Himno de
+la alegría a cuatro canales, con melodía, bajo, arpegio y charles, secuenciado
+por el temporizador de la MS2), DUMP (memoria física por la DMA), KEYS
 (la matriz del teclado) y DEMO (un bloque que rebota con el blitter
 sincronizado con el VBlank). La primera línea lleva el tiempo desde el
 arranque.
@@ -185,18 +199,19 @@ Copia y relleno de rectángulos, byte a byte.
 
 `sim/tb_lx.sv` (`make ROM=...` en `sim/`) carga la ROM, traza E/S y bus, mide
 el audio de la MS2, enseña memoria (`+peek=HEX +peekn=N`), teclea
-(`+type=help|`) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
+(`+type=help|`), guarda el audio de la MS2 (`+pcm=fichero`, estéreo de 16 bits
+a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 
 | ROM | Resultado en simulación |
 |---|---|
-| BIOS LX | consola, pitido, órdenes tecleadas (HELP) |
+| BIOS LX | consola, pitido, órdenes tecleadas; PLAY: melodía E4-E4-F4-G4 y bajo C3/G2 en la salida de la MS2 (`+pcm=fichero` guarda el audio) |
 | pictest | 59 interrupciones del temporizador en 60 ms, 4 VBlank |
 | ms2test | onda cuadrada a 187,5 Hz, ±4064, 7 fines de muestra y 11 ticks de 300 Hz en 40 ms |
 | dmatest | relleno 8x3, copia 4x2 y copia con transparente correctos, 4 IRQ |
 
 ## Pendiente
 
-- Driver de la Magic Sound 2 y un reproductor de MOD.
+- Reproductor de MOD sobre el driver de sonido.
 - Teclado español (ahora la tabla es la de EE. UU.).
 - IPC (FF0020): en MiSTer el "MCU" podría ser el ARM por hps_io.
 - Acelerador gráfico con conversión de formatos de píxel (el blitter cubre

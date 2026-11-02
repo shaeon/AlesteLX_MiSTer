@@ -9,6 +9,7 @@
 #         +nbus=N +bus_t0=us           traza del bus de la CPU
 #         +peek=HEX +peekn=N           memoria al final
 #         +type=texto +type_ms=N       teclea ('|' Enter, '~' ESC; sin espacios)
+#         +pcm=fichero                 audio de la MS2 (estereo, 16 bits, 48 kHz)
 #   make lint
 ROOT    := ..
 C       := $(ROOT)/rtl/core

@@ -50,7 +50,10 @@ module lx_input (
     logic       ovf;
     logic [7:0] ctrl;
 
-    wire pop  = rd && adr_i == 7'h02 && cnt != 5'd0;
+    // Sale de la cola en el ciclo del ack, que es cuando el maestro recoge el
+    // dato (dat_o es la cabeza de la cola): si saliera antes, entregaria la
+    // siguiente.
+    wire pop  = cs_i && !we_i && ack_q && adr_i == 7'h02 && cnt != 5'd0;
     wire push = key_strobe;
 
     always_ff @(posedge clk) begin

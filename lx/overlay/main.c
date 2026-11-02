@@ -3,7 +3,7 @@
  * Shaeon (Carlos Palmero), a partir del main.c de aleste-xi-bios (hww).
  *
  * Instala los drivers (MMU, CRTC, video 640x200, paleta, interrupciones,
- * temporizador, DMA y teclado) y arranca un pequeno monitor de ordenes en
+ * temporizador, DMA, teclado y sonido) y arranca un pequeno monitor de ordenes en
  * una consola de texto de 80x25.
  */
 #include <stdint.h>
@@ -15,40 +15,23 @@
 #include "drivers/timer.h"
 #include "drivers/dma.h"
 #include "drivers/kbd.h"
+#include "drivers/snd.h"
+#include "tune.h"
 #include "con.h"
 
 #define VRAM_PHYS   0xC40000UL
 #define VRAM_STRIDE 80
 
-/* ---- E/S directa (solo para la Magic Sound 2, hasta que tenga driver) */
-static void io_wr(uint8_t page, uint8_t reg, uint8_t v) __naked {
-    page; reg; v;
-    __asm
-        ld hl, #2
-        add hl, sp
-        ld a, (hl)
-        out (0xF1), a
-        inc hl
-        ld c, (hl)
-        inc hl
-        ld a, (hl)
-        out (c), a
-        ret
-    __endasm;
-}
-
+/* ---- Pitido por la Magic Sound 2: onda cuadrada de 16 muestras (3 kHz) */
 static const signed char beep_wave[16] = { 90,90,90,90,90,90,90,90, -90,-90,-90,-90,-90,-90,-90,-90 };
-static void ms2_beep(uint16_t ms) {
-    uint32_t a = dma_phys(beep_wave), e = a + sizeof(beep_wave);
-    io_wr(7, 0x00, 1);
-    io_wr(7, 0x21, (uint8_t)a); io_wr(7, 0x22, (uint8_t)(a >> 8)); io_wr(7, 0x23, (uint8_t)(a >> 16));
-    io_wr(7, 0x24, (uint8_t)e); io_wr(7, 0x25, (uint8_t)(e >> 8)); io_wr(7, 0x26, (uint8_t)(e >> 16));
-    io_wr(7, 0x27, (uint8_t)a); io_wr(7, 0x28, (uint8_t)(a >> 8)); io_wr(7, 0x29, (uint8_t)(a >> 16));
-    io_wr(7, 0x2A, 0x60); io_wr(7, 0x2B, 0x60);
-    io_wr(7, 0x2C, 0); io_wr(7, 0x2D, 0); io_wr(7, 0x2E, 1);
-    io_wr(7, 0x20, 0x03);
+static snd_voice_t beep_voice;
+static void beep(uint16_t ms) {
+    snd_voice_set(&beep_voice, 3, dma_phys(beep_wave), sizeof(beep_wave), 0, sizeof(beep_wave), 0);
+    beep_voice.vol_l = 0x60; beep_voice.vol_r = 0x60;
+    beep_voice.step[0] = 0; beep_voice.step[1] = 0; beep_voice.step[2] = 1;
+    snd_play(&beep_voice);
     timer_delay_ms(ms);
-    io_wr(7, 0x20, 0x00);
+    snd_stop(3);
 }
 
 /* ---- Interrupciones */
@@ -112,6 +95,8 @@ static void cmd_help(void) {
     con_puts("CLS           borra la consola\n");
     con_puts("TIME          milisegundos y VBlanks\n");
     con_puts("BEEP          pitido por la Magic Sound 2\n");
+    con_puts("PLAY          musica a cuatro canales por la Magic Sound 2\n");
+    con_puts("STOP          para la musica\n");
     con_puts("DUMP dir      64 bytes de memoria fisica (direccion hex de 24 bits)\n");
     con_puts("KEYS          matriz del teclado (ESC sale)\n");
     con_puts("DEMO          bloque que rebota con el blitter (una tecla sale)\n");
@@ -210,7 +195,8 @@ void main(void) {
     timer_activate_lx();
     dma_activate_lx();
     kbd_activate_lx();
-    ok = int_detect() && timer_detect() && dma_detect() && kbd_detect();
+    snd_activate_ms2();
+    ok = int_detect() && timer_detect() && dma_detect() && kbd_detect() && snd_detect();
     if (!ok) {
         vbuf_clear(0x00);
         vbuf_draw_char(&_scr_font_data, '?', 0, 0);
@@ -220,6 +206,7 @@ void main(void) {
     timer_install();
     dma_install();
     kbd_install();
+    snd_install();
     int_set_handler(INT_LINE_VBLANK, on_vblank);
     int_enable(INT_LINE_VBLANK);
 
@@ -227,10 +214,10 @@ void main(void) {
     con_puts("ALESTE LX BIOS - MiSTer");
     dma_fill(VRAM_PHYS + 11 * VRAM_STRIDE, 0xFF, VRAM_STRIDE);   /* raya bajo el titulo */
     con_set_window(2, CON_ROWS - 1);
-    con_puts("Drivers: INT (PIC LX), TIMER, DMA (blitter), KBD (PS/2), consola 80x25\n");
+    con_puts("Drivers: INT (PIC LX), TIMER, DMA (blitter), KBD (PS/2), SND (Magic Sound 2)\n");
     last_ms = timer_get_ms();
     con_set_idle(status_idle);
-    ms2_beep(150);
+    beep(150);
     con_puts("Escribe HELP para ver las ordenes.\n\n");
 
     while (1) {
@@ -244,7 +231,9 @@ void main(void) {
         if (streq(cmd, "help")) cmd_help();
         else if (streq(cmd, "cls")) con_clear();
         else if (streq(cmd, "time")) cmd_time();
-        else if (streq(cmd, "beep")) ms2_beep(150);
+        else if (streq(cmd, "beep")) beep(150);
+        else if (streq(cmd, "play")) { tune_start(); con_puts("Himno de la alegria (Beethoven). STOP para parar.\n"); }
+        else if (streq(cmd, "stop")) tune_stop();
         else if (streq(cmd, "dump")) cmd_dump(arg);
         else if (streq(cmd, "keys")) cmd_keys();
         else if (streq(cmd, "demo")) cmd_demo();
