@@ -12,6 +12,9 @@
 ;                     E = cara, C = sector (1-9) -> A = 0 bien, o error
 ;                     (bit 7: sin respuesta; si no, ST1 | ST2)
 ;   __fdc_status      -> A = registro de estado principal del 765
+;   __fdc_read_multi  como __fdc_read, con B = numero de sectores seguidos de
+;                     la misma pista y cara (1-9): una sola orden, sin perder
+;                     vueltas entre sectores
 ; =============================================================================
 
 module fdc_driver
@@ -22,7 +25,7 @@ SECTION DRV_VTABLE
 
 PUBLIC __fdc_vtable
 PUBLIC __fdc_detect, __fdc_install, __fdc_get_info, __fdc_command, __fdc_uninstall
-PUBLIC __fdc_read, __fdc_status
+PUBLIC __fdc_read, __fdc_status, __fdc_read_multi
 
 __fdc_vtable:
 __fdc_detect:    jp _undefined_method
@@ -32,6 +35,7 @@ __fdc_command:   jp _undefined_method
 __fdc_uninstall: jp _undefined_method
 __fdc_read:      jp _undefined_method
 __fdc_status:    jp _undefined_method
+__fdc_read_multi: jp _undefined_method
 __fdc_vtable_end:
 
 SECTION DRV_CODE

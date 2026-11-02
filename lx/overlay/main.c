@@ -53,7 +53,7 @@ static void status_idle(void) {
         secs++;
         if (mod_playing()) {
             con_gotoxy(36, 0);
-            con_puts("MOD ");
+            con_puts(mod_kind()); con_putc(' ');
             con_puthex(mod_position()); con_putc('/'); con_puthex(mod_length());
             con_puts(" fila "); con_puthex(mod_row()); con_puts("   ");
         } else {

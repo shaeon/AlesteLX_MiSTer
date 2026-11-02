@@ -29,6 +29,7 @@ __fdc_765_vtable:
     jp f765_uninstall
     jp f765_read
     jp f765_status
+    jp f765_read_multi
 
 f765_status:
     ld a, FDC_PAGE
@@ -133,8 +134,16 @@ f765_command:
     ld hl, 0
     ret
 
-; ---- HL = bufer, A = unidad, D = pista, E = cara, C = sector
+; ---- HL = bufer, A = unidad, D = pista, E = cara, C = sector (y B = cuenta)
 f765_read:
+    ld b, 1
+f765_read_multi:
+    push af
+    ld a, b
+    dec a
+    add a, c
+    ld (r_eot), a               ; ultimo sector
+    pop af
     and 1
     ld (r_drv), a
     ld a, d
@@ -212,8 +221,8 @@ rd_ontrack:
     call nc, cmd_out            ; R
     ld a, 2
     call nc, cmd_out            ; N: 512 bytes
-    ld a, (r_sec)
-    call nc, cmd_out            ; EOT: solo este sector
+    ld a, (r_eot)
+    call nc, cmd_out            ; EOT: ultimo sector que se lee
     ld a, 0x2A
     call nc, cmd_out            ; GPL
     ld a, 0xFF
@@ -296,6 +305,7 @@ r_drv:   db 0
 r_trk:   db 0
 r_head:  db 0
 r_sec:   db 0
+r_eot:   db 0
 r_buf:   dw 0
 r_st:    ds 3
 r_to:    db 0

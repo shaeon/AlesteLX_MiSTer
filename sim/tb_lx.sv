@@ -121,7 +121,13 @@ module tb_lx;
         end
     end
 
+    // Disco 3 veces mas rapido que el real (rotacion y 32 us por byte del
+    // 765), para no simular segundos de carga; -DFDC_REAL para el real.
+`ifdef FDC_REAL
     aleste_lx_core dut (
+`else
+    aleste_lx_core #(.FDC_CYCLES(20'd1286)) dut (
+`endif
 `ifdef SDRAM_DQ_CLK
         .sdram_dq_clk(clk_dq),
 `endif

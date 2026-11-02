@@ -73,12 +73,15 @@ llamar desde una rutina de interrupción (un reproductor).
 recogen sondeando RQM/EXM). `fdc_read(unidad, pista, cara, sector, bufer)` y
 `fdc_read_lba(unidad, lba, bufer)` para discos de 720 KB (80 pistas, 2 caras,
 9 sectores de 512 bytes); recalibra la primera vez y solo busca si cambia de
-pista.
+pista. `fdc_read_multi` lee varios sectores seguidos de una pista con una
+sola orden, sin perder vueltas entre ellos.
 
 **Ficheros** (`fat.h`, `src/fat.c`): discos MSX-DOS (FAT12), directorio raíz,
 solo lectura. `fat_mount(unidad)`, `fat_dir(rutina)`, `fat_find(nombre,
-&entrada)`, `fat_load(&entrada, direccion_fisica, progreso)` (cada sector va
-a su sitio por la DMA) y `fat_free_kb()`.
+&entrada)`, `fat_load(&entrada, direccion_fisica, progreso)` y `fat_free_kb()`.
+`fat_load` junta los clústeres seguidos y lee hasta una pista entera de una
+vez en un búfer de pista (la ventana 2 pasa un momento del vídeo, banco 10h,
+al banco 11h, C44000); la DMA lo lleva luego a su sitio.
 
 **MOD** (`mod.h`, `src/mod.c`): reproductor de MOD de ProTracker de 4
 canales (M.K., M!K!, 4CHN, FLT4) y de STM de Scream Tracker 2 (como las
@@ -242,7 +245,8 @@ Copia y relleno de rectángulos, byte a byte.
 
 `sim/tb_lx.sv` (`make ROM=...` en `sim/`) carga la ROM, traza E/S y bus, mide
 el audio de la MS2, enseña memoria (`+peek=HEX +peekn=N`), teclea
-(`+type=help|`), guarda el audio de la MS2 (`+pcm=fichero`, estéreo de 16 bits
+(`+type=help|`, `_` es el espacio), monta un disco (`+dsk=imagen`; el disco va 3
+veces más deprisa que el real salvo con `-DFDC_REAL`), guarda el audio de la MS2 (`+pcm=fichero`, estéreo de 16 bits
 a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 
 | ROM | Resultado en simulación |
@@ -250,6 +254,7 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 | BIOS LX | consola, pitido, órdenes tecleadas; PLAY: melodía E4-E4-F4-G4 y bajo C3/G2 en la salida de la MS2 (`+pcm=fichero` guarda el audio) |
 | pictest | 59 interrupciones del temporizador en 60 ms, 4 VBlank |
 | ms2test | onda cuadrada a 187,5 Hz, ±4064, 7 fines de muestra y 11 ticks de 300 Hz en 40 ms |
+| DIR y MOD SLL1.STM con `mag-player.dsk` (`+dsk=`) | lista los 10 ficheros; carga SLL1.STM (82 KB, 169 sectores) y la toca |
 | MOD (`lx/test/LXDEMO.MOD`, de `tools/make_test_mod.py`) | `+mod=` lo carga como el OSD; MOD toca la melodía (E4, F4) y el bajo (C3), con la posición y la fila en la línea de estado |
 | dmatest | relleno 8x3, copia 4x2 y copia con transparente correctos, 4 IRQ |
 
