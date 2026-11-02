@@ -171,6 +171,7 @@ module tb_lx;
         .user_reset(1'b0), .boot_mode(2'd0),
         .key_strobe(k_strobe), .key_pressed(k_pressed), .key_extended(1'b0), .key_code(k_code),
         .fdc_fast(fdc_fast), .fdc_one_drive(1'b0),
+        .mist_rtc(64'h40_01_26_11_02_21_05_30),   // lunes 2-11-2026 21:05:30 (BCD)
         .img_mounted(img_mounted), .img_wp(1'b0), .img_size(img_size),
         .sd_lba(sd_lba), .sd_rd(sd_rd), .sd_wr(sd_wr), .sd_ack(sd_ack),
         .sd_buff_addr(sd_buff_addr), .sd_buff_dout(sd_buff_dout), .sd_buff_din(sd_buff_din),

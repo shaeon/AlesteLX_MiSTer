@@ -19,7 +19,7 @@
 #include "fat.h"
 #include "bdos.h"
 
-#define LXDOS_VERSION "0.3"
+#define LXDOS_VERSION "0.4"
 #define VRAM_PHYS   0xC40000UL
 #define VRAM_STRIDE 80
 
