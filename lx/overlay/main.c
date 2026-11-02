@@ -116,6 +116,8 @@ static void cmd_help(void) {
     con_puts("DUMP addr         64 bytes of physical memory (24-bit hex address)\n");
     con_puts("KEYS              keyboard matrix (ESC exits)\n");
     con_puts("DEMO              bouncing block drawn by the blitter (any key exits)\n");
+    con_puts("520EX             start the Aleste 520EX compatible mode (AlesteDOS,\n");
+    con_puts("                  MSX-DOS and CPC software); OSD reset returns here\n");
 }
 
 static void cmd_time(void) {
@@ -287,6 +289,46 @@ static void cmd_mod(const char* arg) {
     mod_play();
 }
 
+/* ---- Modo compatible Aleste 520EX
+   boot.rom = LX.ROM + AL512.BIN: el cargador deja AL512 en 400000, donde la
+   busca el modo legacy (CPC/520EX). Se hace lo mismo que el arranque del core
+   del 520EX (BOOT520): LD BC,7F89h; XOR A; y en FFFEh OUT (0F0h),A, que pasa
+   la MMU a modo legacy; la CPU da la vuelta a 0000h y sigue en la ROM baja
+   del 520EX como tras un reset. El reset del OSD vuelve al LX. */
+#define AL512_PHYS 0x400000UL
+static void jump_520ex(void) __naked {
+    __asm
+        di
+        ld a, #0xD3             ; OUT (0F0h),A en FFFEh
+        ld (0xFFFE), a
+        ld a, #0xF0
+        ld (0xFFFF), a
+        ld bc, #0x7F89
+        xor a
+        jp 0xFFFE
+    __endasm;
+}
+
+static uint8_t al512_hdr[4];
+static void cmd_520ex(void) {
+    dma_copy(AL512_PHYS, dma_phys(al512_hdr), sizeof(al512_hdr));
+    if (al512_hdr[0] != 0x01 || al512_hdr[1] != 0x89 || al512_hdr[2] != 0x7F) {
+        con_puts("Aleste 520EX ROM not found at 400000: boot.rom must be\n");
+        con_puts("LX.ROM followed by AL512.BIN (copy /b LX.ROM + AL512.BIN boot.rom).\n");
+        return;
+    }
+    con_puts("Starting the Aleste 520EX (OSD reset returns to the LX)...\n");
+    timer_delay_ms(300);
+    tune_stop();
+    mod_stop();
+    snd_uninstall();
+    timer_uninstall();
+    kbd_uninstall();
+    dma_wait();
+    int_uninstall();
+    jump_520ex();
+}
+
 static char line[64];
 
 void main(void) {
@@ -346,6 +388,7 @@ void main(void) {
         else if (streq(cmd, "beep")) beep(150);
         else if (streq(cmd, "mod")) cmd_mod(arg);
         else if (streq(cmd, "dir")) cmd_dir();
+        else if (streq(cmd, "520ex")) cmd_520ex();
         else if (streq(cmd, "load")) cmd_load(arg);
         else if (streq(cmd, "play")) { mod_stop(); tune_start(); con_puts("Ode to Joy (Beethoven). STOP to stop.\n"); }
         else if (streq(cmd, "stop")) { tune_stop(); mod_stop(); }

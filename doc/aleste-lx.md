@@ -13,6 +13,18 @@ MMU), donde el cargador deja LX.ROM (índice 0, 64 KB: C00000-C0FFFF). En la SD,
 `games/AlesteLX/boot.rom` es LX.ROM y se carga sola; desde el OSD se puede
 recargar (Developer → Reload LX ROM).
 
+### Modo compatible Aleste 520EX
+
+Si `boot.rom` lleva AL512.BIN (la ROM del 520EX, MAME `al520ex`, CRC32
+e8c2a9a1) detrás de LX.ROM, el cargador la deja en 400000, donde la busca el
+modo legacy. La orden `520EX` del monitor hace lo mismo que el arranque del
+core del 520EX: apaga los periféricos LX, pone `OUT (0F0h),A` en FFFEh y salta
+allí con A = 0; la MMU pasa a modo legacy y la CPU da la vuelta a 0000h, en la
+ROM del 520EX, como tras un reset (AlesteDOS, MSX-DOS, software del CPC). El
+reset del OSD vuelve al LX.
+
+    copy /b LX.ROM + AL512.BIN boot.rom
+
 ## La BIOS
 
 `lx/aleste-xi-bios` es el repositorio de hww sin tocar. `lx/build.sh` hace una
