@@ -36,7 +36,7 @@ EXTERN __int_lx_dispatch
 
 PUBLIC __dos_exec, __dos_bdos_gate, __dos_bios_gate, __dos_isr_gate, __dos_wboot_gate
 PUBLIC __dos_bdos_vec, __dos_bios_vec, __dos_reg_c, __dos_reg_de, __dos_reg_a
-PUBLIC __dos_xret, __dos_ret_a, __dos_ret_bc, __dos_ret_de, __dos_ret_hl, __dos_reg_hl, __dos_reg_b
+PUBLIC __dos_xret, __dos_ret_a, __dos_ret_bc, __dos_ret_de, __dos_ret_hl, __dos_reg_hl, __dos_reg_b, __dos_reg_hl_b
 
 SECTION DRV_CODE
 
@@ -199,6 +199,7 @@ __dos_bios_vec: dw 0
 __dos_reg_c:    db 0
 __dos_reg_a:    db 0
 __dos_reg_de:   dw 0
+__dos_reg_hl_b:                 ; (el mismo, byte a byte, para el C)
 __dos_reg_hl:   dw 0            ; HL y B del programa (funciones de bloque y absolutas)
 __dos_reg_b:    db 0
 __dos_xret:     db 0

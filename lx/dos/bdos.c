@@ -33,6 +33,10 @@
 #include "console.h"
 #include "fat.h"
 #include "bdos.h"
+#include "mod.h"
+
+static uint8_t music_play(uint16_t a);
+static void    music_info(uint16_t a);
 
 #define TPA_PHYS  0xC90000UL
 #define TPA_TOP   0xBF00
@@ -43,6 +47,7 @@
 /* Puertas y registros de bios/dosgate.asm (ROM, ventana 3) */
 extern uint8_t  _dos_reg_c, _dos_reg_a, _dos_reg_b;
 extern uint16_t _dos_reg_de, _dos_reg_hl;
+extern uint8_t  _dos_reg_hl_b[2];            /* el mismo HL, byte a byte (L, H) */
 extern uint8_t  _dos_xret, _dos_ret_a;
 extern uint16_t _dos_ret_bc, _dos_ret_de, _dos_ret_hl;
 extern uint16_t _dos_bdos_vec, _dos_bios_vec;
@@ -488,21 +493,76 @@ static uint16_t bdos_c(void) {
         return xret(0, 0, (uint16_t)se << 8, ((uint16_t)h << 8) | mi);
     }
     case 0x2D: {                                /* poner hora: H horas, L minutos, D segundos */
-        uint8_t h = _dos_reg_hl >> 8, mi = (uint8_t)_dos_reg_hl, se = de >> 8;
+        uint8_t h = _dos_reg_hl_b[1], mi = _dos_reg_hl_b[0], se = de >> 8;
         if (h > 23 || mi > 59 || se > 59) return 0xFF;
         rtc_wr(4, to_rtc(h)); rtc_wr(2, to_rtc(mi)); rtc_wr(0, to_rtc(se));
         return 0;
     }
     case 0x2E: verify_flag = e; return 0;       /* verificacion (no hace falta) */
     case 0x2F: case 0x30: {                     /* sectores absolutos: DE sector, H cuantos, L unidad */
-        uint8_t d = (uint8_t)_dos_reg_hl, n = _dos_reg_hl >> 8;
+        uint8_t d = _dos_reg_hl_b[0], n = _dos_reg_hl_b[1];
         if (fat_use(d & 1) || fat_abs(de, n, TPA_PHYS + dma_addr, fn == 0x30)) return 0xFF;
         return 0;
     }
     case 28: case 29: case 30: case 31: return 0;
+    case 0xA0: return music_play(de);
+    case 0xA1: music_info(de); return 0;
     default:
         return 0;
     }
+}
+
+/* ---- Musica del LX-DOS (extension propia del BDOS, para MODPLAY.COM)
+   A0h  DE = nombre del fichero (ASCIIZ en la TPA): lo carga y lo toca de
+        fondo; DE = 0: para la musica. A = 0 bien, 1 no esta, 2 error de
+        disco, 3 no es un MOD de 4 canales ni un STM, 4 demasiado grande
+   A1h  DE = 32 bytes en la TPA: [0] sonando, [1] posicion, [2] posiciones,
+        [3] patrones, [4] fila, [5..8] "MOD"/"STM", [9..29] titulo (ASCIIZ)
+   El fichero se carga en la fisica 100000h (slot 0, fuera de todo lo demas)
+   y suena desde la interrupcion del temporizador de la MS2, aunque se
+   ejecuten otros programas. */
+#define MUSIC_PHYS 0x100000UL
+#define MUSIC_MAX  0x200000UL
+static uint8_t music_on;
+
+static uint8_t music_play(uint16_t a) {
+    char name[16];
+    fat_entry_t e;
+    uint8_t i;
+    mod_stop();
+    music_on = 0;
+    if (!a) return 0;
+    from_tpa(a, name, sizeof(name));
+    name[sizeof(name) - 1] = 0;
+    for (i = 0; name[i]; i++) if (name[i] >= 'a' && name[i] <= 'z') name[i] -= 32;
+    {   /* "B:NOMBRE" */
+        uint8_t d = dos_drive;
+        char* n = name;
+        if (n[0] && n[1] == ':') { d = (n[0] - 'A') & 1; n += 2; }
+        if (fat_use(d)) return 2;
+        if (fat_find(n, &e)) return 1;
+    }
+    if (e.size > MUSIC_MAX) return 4;
+    if (fat_load(&e, MUSIC_PHYS, 0)) return 2;
+    if (mod_load(MUSIC_PHYS) != MOD_OK) return 3;
+    mod_play();
+    music_on = 1;
+    return 0;
+}
+
+static void music_info(uint16_t a) {
+    uint8_t buf[32], i;
+    const char* t = mod_title();
+    const char* k = mod_kind();
+    for (i = 0; i < 32; i++) buf[i] = 0;
+    buf[0] = music_on;
+    buf[1] = mod_position();
+    buf[2] = mod_length();
+    buf[3] = mod_patterns();
+    buf[4] = mod_row();
+    for (i = 0; i < 3 && k[i]; i++) buf[5 + i] = k[i];
+    for (i = 0; i < 20 && t[i]; i++) buf[9 + i] = t[i];
+    to_tpa(a, buf, sizeof(buf));
 }
 
 /* ---- BIOS de CP/M: A = funcion, C = caracter */

@@ -330,11 +330,11 @@ static void cmd_520ex(void) {
 }
 
 /* ---- Arranque del sistema del disco (LXDOS.SYS)
-   Se carga en el slot 3, bancos 20h-21h (C80000, hasta 32 KB) y
+   Se carga en el slot 3, bancos 20h-22h (C80000, hasta 44 KB: la pila va arriba) y
    __boot_jump (bios/boot.asm, residente) lo pone en las ventanas 0 y 1 y
    salta a 0000h. Vuelve si no hay disco o no esta el fichero. */
 #define SYS_PHYS 0xC80000UL
-#define SYS_MAX  0x8000UL
+#define SYS_MAX  0xB000UL
 static void boot_jump_asm(void) __naked {
     __asm
         EXTERN __boot_jump
@@ -350,7 +350,7 @@ static uint8_t try_boot(uint8_t verbose) {
         if (verbose) disk_error(r);
         return 0;
     }
-    if (e.size == 0 || e.size > SYS_MAX) { con_puts("LXDOS.SYS is too big (32 KB max).\n"); return 0; }
+    if (e.size == 0 || e.size > SYS_MAX) { con_puts("LXDOS.SYS is too big (44 KB max).\n"); return 0; }
     con_puts("Booting LXDOS.SYS...\n");
     tune_stop();
     mod_stop();

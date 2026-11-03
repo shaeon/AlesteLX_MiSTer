@@ -113,7 +113,7 @@ sdone:  ; ---- borrar TEST2.TXT y comprobar que ya no se abre
         jr z, gone
         ld de, m_still
 gone:   call print
-        ret
+        jp 0                    ; con pila propia, se vuelve al DOS por 0000h
 
 fcb_reset:                      ; FCB de TEST.TXT, todo a cero
         ld hl, fcb

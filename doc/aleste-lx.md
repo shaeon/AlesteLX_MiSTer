@@ -190,6 +190,18 @@ caché agrupa las escrituras de 128 bytes; la FAT está en memoria y
 escribe en sus dos copias. El driver `fdc` escribe con la orden WRITE DATA
 del 765 (`fdc_write_multi`).
 
+Música: el LX-DOS lleva el reproductor de MOD y STM (`src/mod.c`) y dos
+funciones propias del BDOS, en números que CP/M y MSX-DOS no usan: `A0h`
+(DE = nombre ASCIIZ: lo carga en la física 100000h y lo toca de fondo; DE = 0
+la para; A = 0 bien, 1 no está, 2 error de disco, 3 formato, 4 demasiado
+grande) y `A1h` (DE = 32 bytes: sonando, posición, posiciones, patrones,
+fila, tipo y título). `MODPLAY.COM` (`lx/dos/test/modplay.asm`) las usa:
+`MODPLAY fichero` toca y vuelve al DOS con la música sonando, `MODPLAY /S`
+la para y `MODPLAY` solo dice qué suena. La música sigue mientras se
+ejecutan otros programas (la interrupción del temporizador de la MS2 pasa
+por la puerta de interrupciones al mapa del LX-DOS). LXDOS.SYS ocupa ahora
+los bancos 20h-22h (hasta 44 KB; la pila va arriba de la ventana 2).
+
 Órdenes del LX-DOS: `A:`, `B:`, `DIR`, `TYPE`, `COPY origen destino`
 (destino puede ser `B:`), `DEL` (con comodines), `REN`, `CLS`, `VER`,
 `MONITOR`, `HELP` y `nombre [argumentos]` para ejecutar `NOMBRE.COM`. Al
@@ -350,6 +362,7 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 | ROM | Resultado en simulación |
 |---|---|
 | MSXTEST (funciones de MSX-DOS 1) | fecha y hora puestas y leídas, día de la semana, asignación, bloques de 300 × 1 byte con fin de fichero, sector absoluto |
+| MODPLAY LXDEMO.MOD | carga y toca el MOD de fondo y vuelve al DOS; MODPLAY sin nada dice qué suena |
 | ZEXDOC y ZEXALL (`lx/dos/test/zex`, en `sd/LXDOS.DSK`) | arrancan en el LX-DOS (cabecera y primera prueba); completos, en la placa |
 | M80 y L80 (de `alestedos-dev.dsk` del 520EX) con `lx/dos/test/TEST.MAC` | `m80 =test`, `l80 test,test/n/e` y `test`: ensambla, enlaza y el TEST.COM nuevo se ejecuta |
 | MSXTEST (`lx/dos/test/msxtest.asm`) | fecha y hora del reloj, 1Bh, bloques 26h/27h (escribe 300, lee 500: fin de fichero y 300 leídos, datos iguales) y sector absoluto 2Fh correctos |

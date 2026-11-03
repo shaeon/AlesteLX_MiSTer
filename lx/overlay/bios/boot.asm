@@ -2,7 +2,7 @@
 ; BOOT.ASM - Arranque de un sistema cargado del disco (LXDOS.SYS)
 ; Shaeon (Carlos Palmero), para el core AlesteLX_MiSTer.
 ;
-; La ROM carga el sistema en el slot 3, bancos 20h y 21h (C80000-C87FFF) y
+; La ROM carga el sistema en el slot 3, bancos 20h-22h (C80000-C8AFFF) y
 ; llama a __boot_jump, que esta en la parte residente (ventana 3, C000-FFFF):
 ; con las interrupciones cerradas, pone los bancos 20h-22h en las ventanas
 ; 0-2 y salta a 0000h. La ventana 3 sigue con los drivers, que el sistema usa

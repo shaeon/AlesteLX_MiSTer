@@ -70,10 +70,10 @@ zcc +z80 -vn -O3 --no-crt -m -I../src/include -I../src -s -clib=sdcc_iy -DFAT_WR
     sections.asm crt0_dos.asm ../bios_abi.asm \
     ../src/src/drivers/int.c ../src/src/drivers/timer.c ../src/src/drivers/dma.c \
     ../src/src/drivers/kbd.c ../src/src/drivers/snd.c ../src/src/drivers/fdc.c \
-    ../src/src/drivers/vbuf.c ../src/src/console.c ../src/src/fat.c bdos.c main.c
+    ../src/src/drivers/vbuf.c ../src/src/console.c ../src/src/fat.c ../src/src/mod.c bdos.c main.c
 cat lxdos_code_crt_start.bin > LXDOS.SYS
 head -c $((0x100 - $(wc -c < lxdos_code_crt_start.bin))) /dev/zero >> LXDOS.SYS
 cat lxdos_code_compiler.bin >> LXDOS.SYS
-[ "$(wc -c < LXDOS.SYS)" -le 32768 ] || { echo "LXDOS.SYS pasa de 32 KB"; exit 1; }
+[ "$(wc -c < LXDOS.SYS)" -le 45056 ] || { echo "LXDOS.SYS pasa de 44 KB (la pila va arriba de la ventana 2)"; exit 1; }
 cp LXDOS.SYS ../LXDOS.SYS
 echo "lx/build/LXDOS.SYS: $(wc -c < LXDOS.SYS) bytes"
