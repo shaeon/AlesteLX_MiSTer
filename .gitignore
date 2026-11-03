@@ -45,3 +45,5 @@ c5_pin_model_dump.txt
 sim/obj/
 
 __pycache__/
+sim/unit/*/obj_dir/
+sim/unit/*/*.vcd
