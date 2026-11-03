@@ -62,6 +62,8 @@ void con_gotoxy(uint8_t x, uint8_t y) {
 }
 
 uint8_t con_getx(void) { return cx; }
+uint8_t con_top(void) { return win_top; }
+void con_draw(char c, uint8_t x, uint8_t y) { if (x < CON_COLS && y < CON_ROWS) draw(c, x, y); }
 uint8_t con_gety(void) { return cy; }
 
 static void newline(void) {

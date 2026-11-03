@@ -195,12 +195,23 @@ static void cmd_help(void) {
     con_puts("COPY src dst       copy a file (dst can be a drive: COPY X.TXT B:)\n");
     con_puts("DEL file           delete files (wildcards * and ? allowed)\n");
     con_puts("REN old new        rename a file\n");
+    con_puts("KEYB [US|ES]       keyboard layout (the OSD sets it at boot)\n");
     con_puts("CLS                clear the screen\n");
     con_puts("VER                LX-DOS version\n");
     con_puts("MONITOR            back to the ROM monitor\n");
     con_puts("HELP               this help\n");
     con_puts("name [args]        run NAME.COM (CP/M 2.2 / MSX-DOS 1 programs)\n");
     con_puts("AUTOEXEC.BAT       runs its commands at boot\n");
+}
+
+/* ---- KEYB [US|ES]: distribucion del teclado (la del OSD al arrancar) */
+static void cmd_keyb(const char* arg) {
+    char a = arg[0] | 0x20, b = arg[1] | 0x20;
+    if (a == 'e' && b == 's') kbd_set_layout(KBD_LAYOUT_ES);
+    else if (a == 'u' && b == 's') kbd_set_layout(KBD_LAYOUT_US);
+    else if (*arg) { con_puts("KEYB [US|ES]\n"); return; }
+    con_puts("Keyboard: ");
+    con_puts(kbd_get_layout() == KBD_LAYOUT_ES ? "Spanish (ES)\n" : "US\n");
 }
 
 static void cmd_ver(void) {
@@ -242,6 +253,7 @@ static void run_line(char* line) {
     else if (streq(cmd, "ren") || streq(cmd, "rename")) cmd_ren(arg);
     else if (streq(cmd, "cls")) con_clear();
     else if (streq(cmd, "ver")) cmd_ver();
+    else if (streq(cmd, "keyb")) cmd_keyb(arg);
     else if (streq(cmd, "help")) cmd_help();
     else if (streq(cmd, "monitor")) to_rom();
     else {

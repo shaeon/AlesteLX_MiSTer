@@ -40,4 +40,9 @@ uint8_t kbd_getc(void);                         /* espera un caracter */
 uint8_t kbd_shift_state(void);                  /* KBD_SH_* */
 uint8_t kbd_row(uint8_t row) __z88dk_fastcall;  /* fila 0-10 de la matriz, activo a 0 */
 
+#define KBD_LAYOUT_US 0
+#define KBD_LAYOUT_ES 1
+void    kbd_set_layout(uint8_t layout) __z88dk_fastcall;
+uint8_t kbd_get_layout(void);
+
 #endif

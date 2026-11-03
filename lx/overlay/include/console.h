@@ -18,6 +18,8 @@ void    con_init(void);                         /* borra y pone el cursor arriba
 void    con_clear(void);
 void    con_gotoxy(uint8_t x, uint8_t y);
 uint8_t con_getx(void);
+uint8_t con_top(void);                         /* primera fila de la ventana de scroll */
+void    con_draw(char c, uint8_t x, uint8_t y); /* un caracter, sin mover el cursor */
 uint8_t con_gety(void);
 void    con_putc(char c) __z88dk_fastcall;      /* \n, \r, \b, \t y caracteres */
 void    con_puts(const char* s) __z88dk_fastcall;

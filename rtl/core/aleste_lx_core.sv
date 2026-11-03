@@ -93,6 +93,7 @@ module aleste_lx_core #(
     input  logic        mouse_strobe,
     input  logic [63:0] mist_rtc,       // hora del firmware de MiST (user_io), si la placa tiene reloj
     input  logic        cpc_mouse_en,   // OSD: ratones de CPC (Kempston, SYMBiFACE II, Multiplay)
+    input  logic        kbd_layout_es,  // OSD: teclado espanol (la BIOS lo lee en FF0404)
     input  logic        amx_mouse_en,   // OSD: raton AMX por el joystick 1
     input  logic [1:0]  cpu_turbo,      // OSD: velocidad del Z80 (0 4 MHz, 1 8 MHz, 2 16 MHz)
     input  logic [2:0]  video_h_off,    // OSD: centrado horizontal de la imagen CPC
@@ -1094,6 +1095,7 @@ lx_input lx_keyboard (
     .key_pressed(key_pressed),
     .key_extended(key_extended),
     .key_code(key_code),
+    .layout_es_i(kbd_layout_es),
     .row_o(kin_row),
     .cols_i(kin_cols),
     .irq_o(kin_irq)

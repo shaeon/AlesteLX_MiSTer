@@ -64,8 +64,14 @@ module tb_lx;
     endtask
     task automatic type_text(string txt);
         foreach (txt[i]) begin
-            key_ev(ps2(txt[i]), 1); #3ms;
-            key_ev(ps2(txt[i]), 0); #3ms;
+            if (txt[i] == ":") begin                 // Mayus + ; (teclado de EE. UU.)
+                key_ev(8'h12, 1); #1ms;
+                key_ev(8'h4C, 1); #3ms; key_ev(8'h4C, 0); #1ms;
+                key_ev(8'h12, 0); #2ms;
+            end else begin
+                key_ev(ps2(txt[i]), 1); #3ms;
+                key_ev(ps2(txt[i]), 0); #3ms;
+            end
         end
         $display("   tecleado \"%s\" a los %0.1f ms", txt, $realtime / 1.0e6);
     endtask
@@ -106,17 +112,19 @@ module tb_lx;
     string       dsk_name;
     logic        fdc_fast = 1;
     logic [7:0]  dsk [0:(1<<20)-1];
+    logic [7:0]  dskb [0:(1<<20)-1];   // unidad B (+dskb=)
     int          n_sect = 0;
     initial if ($test$plusargs("fdc_slow")) fdc_fast = 0;
     always @(posedge clk_bus) begin
         if (sd_rd[1:0] != 0 && !sd_ack) begin
+            automatic logic sel_b = sd_rd[1];      // la unidad, fija para todo el sector
             n_sect++;
             repeat (20) @(posedge clk_bus);
             sd_ack <= 1;
             for (int i = 0; i < 512; i++) begin
                 @(posedge clk_bus);
                 sd_buff_addr <= 9'(i);
-                sd_buff_dout <= dsk[sd_lba * 512 + i];
+                sd_buff_dout <= sel_b ? dskb[sd_lba * 512 + i] : dsk[sd_lba * 512 + i];
                 sd_buff_wr   <= 1;
                 @(posedge clk_bus);
                 sd_buff_wr   <= 0;
@@ -126,6 +134,7 @@ module tb_lx;
         end
         // escritura: el core da el sector por sd_buff_din segun sd_buff_addr
         if (sd_wr[1:0] != 0 && !sd_ack) begin
+            automatic logic selw_b = sd_wr[1];
             n_wsect++;
             repeat (20) @(posedge clk_bus);
             sd_ack <= 1;
@@ -134,10 +143,26 @@ module tb_lx;
                 sd_buff_addr <= 9'(i);
                 @(posedge clk_bus);
                 @(posedge clk_bus);
-                dsk[sd_lba * 512 + i] = sd_buff_din;
+                if (selw_b) dskb[sd_lba * 512 + i] = sd_buff_din;
+                else          dsk[sd_lba * 512 + i] = sd_buff_din;
             end
             @(posedge clk_bus);
             sd_ack <= 0;
+        end
+    end
+    initial begin
+        string df; int dfd, dn;
+        if ($value$plusargs("dskb=%s", df)) begin
+            dfd = $fopen(df, "rb");
+            if (dfd == 0) begin $display("No encuentro la imagen %s", df); $finish; end
+            dn = $fread(dskb, dfd);
+            $fclose(dfd);
+            wait (cpu_running);
+            repeat (200) @(posedge clk_bus);
+            img_size <= dn; img_mounted <= 3'b010;
+            repeat (50) @(posedge clk_bus);
+            img_mounted <= 3'b000;
+            $display("   disco %s (%0d bytes) en la unidad B", df, dn);
         end
     end
     initial begin
@@ -287,6 +312,13 @@ module tb_lx;
         end
     final if (pcm_fd != 0) $fclose(pcm_fd);
 
+    // Muestras de la MS2 que llegan tarde: en un tick quedan lecturas del anterior
+    int ms2_late = 0, ms2_ticks = 0;
+    always @(posedge clk_bus) if (dut.lx_sound2.tick && dut.lx_sound2.g_ctrl[0]) begin
+        ms2_ticks++;
+        if (dut.lx_sound2.todo != 0) ms2_late++;
+    end
+
     // Primeros accesos de la CPU al bus (+nbus=N)
     int n_bus = 0, max_bus = 0;
     int bus_t0_us = 0;
@@ -409,6 +441,7 @@ module tb_lx;
                 $display("   imagen del disco guardada en %s", dof);
             end
         end
+        $display("== MS2: %0d ticks, %0d con lecturas atrasadas", ms2_ticks, ms2_late);
         $display("== MS2: salida izquierda de %0d a %0d, %0d cambios de signo", a_min, a_max, a_flips);
         begin
             int pa, pn;

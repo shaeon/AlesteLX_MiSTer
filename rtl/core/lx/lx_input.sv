@@ -9,6 +9,8 @@
 //   02 CODE     R  codigo PS/2 (juego 2) del evento mas antiguo; leerlo lo
 //                  saca de la cola (leer FLAGS antes)
 //   03 CTRL     RW bit 0 interrupcion cuando hay eventos (linea 7 del PIC)
+//   04 LAYOUT   R  bit 0 = teclado espanol elegido en el OSD (la BIOS lo usa
+//                  al instalar el driver; KEYB lo cambia luego)
 //   10-1A ROW   R  filas 0-10 de la matriz del 520EX/CPC, activo a 0 (la
 //                  fila 9 lleva el joystick), para juegos
 // Cola de 16 eventos de teclado (los de user_io/hps_io del core).
@@ -31,6 +33,7 @@ module lx_input (
     input  logic        key_extended,
     input  logic [7:0]  key_code,
 
+    input  logic        layout_es_i,    // OSD
     output logic [3:0]  row_o,          // a kbd_520ex.row2
     input  logic [7:0]  cols_i,         // de kbd_520ex.cols2
 
@@ -89,6 +92,7 @@ module lx_input (
             7'h01: dat_o = {6'd0, head[9], head[8]};
             7'h02: dat_o = head[7:0];
             7'h03: dat_o = ctrl;
+            7'h04: dat_o = {7'd0, layout_es_i};
             default: if (adr_i[6:4] == 3'b001 && adr_i[3:0] <= 4'd10) dat_o = cols_i;
         endcase
     end

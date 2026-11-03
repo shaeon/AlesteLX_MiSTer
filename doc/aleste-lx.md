@@ -202,6 +202,18 @@ ejecutan otros programas (la interrupción del temporizador de la MS2 pasa
 por la puerta de interrupciones al mapa del LX-DOS). LXDOS.SYS ocupa ahora
 los bancos 20h-22h (hasta 44 KB; la pila va arriba de la ventana 2).
 
+Consola de los programas: además de los controles de CP/M, las secuencias de
+escape de la BIOS del MSX (VT52) que usan los programas de MSX-DOS: `ESC Y`
+fila columna, `ESC A/B/C/D`, `ESC H`, `ESC E`/`ESC j`, `ESC J`, `ESC K`,
+`ESC l`, 0Bh, 0Ch y 1Ch-1Fh; `ESC b/c/x/y` y su parámetro se ignoran. Las
+filas cuentan desde la primera de la ventana del LX-DOS (debajo del
+título).
+
+Teclado: de EE. UU. o español, según la opción Keyboard del OSD al arrancar;
+`KEYB US` / `KEYB ES` lo cambia (en el LX-DOS y en el monitor). El español
+lleva AltGr (`@ # | \ [ ] { } ~`), la tecla `< >` y ñ, ç, º, ª, ¡, ¿ en
+Windows-1252, como la fuente; sin teclas muertas.
+
 Órdenes del LX-DOS: `A:`, `B:`, `DIR`, `TYPE`, `COPY origen destino`
 (destino puede ser `B:`), `DEL` (con comodines), `REN`, `CLS`, `VER`,
 `MONITOR`, `HELP` y `nombre [argumentos]` para ejecutar `NOMBRE.COM`. Al
@@ -318,7 +330,9 @@ de la matriz del 520EX/CPC para juegos.
 
 ### DMA / blitter (página 6)
 
-Copia y relleno de rectángulos, byte a byte.
+Copia y relleno de rectángulos, byte a byte. Tras cada byte suelta el bus
+un ciclo, para que la Magic Sound 2 (que comparte con ella el segundo
+maestro) no se quede sin muestras durante una copia larga.
 
 | Puerto | | |
 |---|---|---|
@@ -349,6 +363,7 @@ que también usa la copia de ALESTE.CMO, que tiene preferencia.
 | 01 | R | del evento más antiguo: bit 0 pulsada, bit 1 extendida (E0) |
 | 02 | R | código PS/2 (juego 2) del evento más antiguo; leerlo lo saca de la cola |
 | 03 | RW | bit 0 interrupción con eventos (línea 7) |
+| 04 | R | bit 0 teclado español elegido en el OSD (Keyboard) |
 | 10-1A | R | filas 0-10 de la matriz del 520EX/CPC, activo a 0 (la 9 con el joystick) |
 
 ## Pruebas

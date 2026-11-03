@@ -51,7 +51,7 @@ assign BUTTONS = 0;
 // que el nucleo reciba lo mismo. Cambios: Scanlines (2-3) ya no existe (lo
 // sustituye Scandoubler Fx en 21-23) y Aspect ratio (121-122) es nuevo.
 //
-//   0      Reset                        13-14  (libres)
+//   0      Reset                        13     Keyboard (US / Spanish)
 //   4      Audio mono / estereo ABC     15     Mouse (CPC)
 //   5      Disk speed                   16     AMX mouse
 //   6      Floppy drives                17-18  CPU speed
@@ -78,6 +78,7 @@ localparam CONF_STR = {
 	"F1,MOD,Load MOD;",
 	"-;",
 	"O[18:17],CPU speed,4 MHz,8 MHz (turbo),16 MHz;",
+	"O[13],Keyboard,US,Spanish;",
 	"-;",
 	"P1,Video;",
 	"P1-;",
@@ -344,6 +345,7 @@ aleste_lx_core core
 	.mouse_strobe(mouse_strobe),
 	.mist_rtc(RTC[63:0]),            // mismo formato que MiST (BCD, byte 7 = 40h)
 	.cpc_mouse_en(~status[15]),
+	.kbd_layout_es(status[13]),
 	.amx_mouse_en(status[16]),
 	.cpu_turbo(status[18:17]),
 	.video_h_off(status[9:7]),

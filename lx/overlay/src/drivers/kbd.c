@@ -82,3 +82,22 @@ uint8_t kbd_row(uint8_t row) __z88dk_fastcall __naked {
         ret
     __endasm;
 }
+
+/* __kbd_command: A = 1 elige la distribucion (L), A = 2 la devuelve en HL */
+void kbd_set_layout(uint8_t layout) __z88dk_fastcall __naked {
+    layout;
+    __asm
+        EXTERN __kbd_command
+        ld h, 0
+        ld a, 1
+        jp __kbd_command
+    __endasm;
+}
+
+uint8_t kbd_get_layout(void) __naked {
+    __asm
+        EXTERN __kbd_command
+        ld a, 2
+        jp __kbd_command
+    __endasm;
+}

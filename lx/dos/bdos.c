@@ -371,9 +371,68 @@ static uint16_t f_block(uint16_t count, uint8_t write) {
 }
 
 /* ---- consola */
+/* ---- Consola de los programas: caracteres, controles y las secuencias de
+   escape de la BIOS del MSX (VT52), que usan los programas de MSX-DOS:
+     ESC A/B/C/D  cursor arriba/abajo/derecha/izquierda   ESC H  inicio
+     ESC Y f c    cursor a fila f-32, columna c-32
+     ESC E, ESC j borrar pantalla   ESC J  hasta el final   ESC K  hasta fin
+     de linea   ESC l  la linea   ESC b n / ESC c n  color (se ignora: la
+     pantalla es de 1 bit)   ESC x n / ESC y n  forma del cursor (se ignora)
+     0Bh inicio, 0Ch borrar, 1Ch/1Dh/1Eh/1Fh derecha/izquierda/arriba/abajo,
+     07h campana (nada). Las de insertar y borrar lineas (ESC L, ESC M) no se
+   hacen. */
+static uint8_t esc_state, esc_row;
+
+static void erase_to(uint8_t x0, uint8_t y, uint8_t x1) {
+    uint8_t x;
+    for (x = x0; x < x1; x++) con_draw(' ', x, y);
+}
+
 static void out_char(uint8_t c) {
-    if (c >= 0x20 || c == '\r' || c == '\n' || c == '\b' || c == '\t') con_putc(c);
-    else if (c == 0x0C) con_clear();            /* salto de pagina: borra */
+    uint8_t x = con_getx(), y = con_gety(), top = con_top();
+    if (esc_state) {
+        uint8_t st = esc_state;
+        esc_state = 0;
+        if (st == 1) {                              /* ESC + orden */
+            switch (c) {
+            case 'A': if (y > top) con_gotoxy(x, y - 1); return;
+            case 'B': if (y < CON_ROWS - 1) con_gotoxy(x, y + 1); return;
+            case 'C': if (x < CON_COLS - 1) con_gotoxy(x + 1, y); return;
+            case 'D': if (x) con_gotoxy(x - 1, y); return;
+            case 'H': con_gotoxy(0, top); return;
+            case 'E': case 'j': con_clear(); return;
+            case 'K': erase_to(x, y, CON_COLS); return;
+            case 'J': {
+                uint8_t r;
+                erase_to(x, y, CON_COLS);
+                for (r = y + 1; r < CON_ROWS; r++) erase_to(0, r, CON_COLS);
+                return;
+            }
+            case 'l': erase_to(0, y, CON_COLS); return;
+            case 'Y': esc_state = 2; return;
+            case 'b': case 'c': case 'x': case 'y': esc_state = 4; return;
+            default: return;
+            }
+        }
+        if (st == 2) { esc_row = c - 32; esc_state = 3; return; }
+        if (st == 3) {                              /* ESC Y fila columna */
+            uint8_t col = c - 32, row = esc_row + top;
+            con_gotoxy(col < CON_COLS ? col : CON_COLS - 1, row < CON_ROWS ? row : CON_ROWS - 1);
+            return;
+        }
+        return;                                     /* st 4: parametro ignorado */
+    }
+    if (c >= 0x20 || c == '\r' || c == '\n' || c == '\b' || c == '\t') { con_putc(c); return; }
+    switch (c) {
+    case 0x1B: esc_state = 1; return;
+    case 0x0C: con_clear(); return;
+    case 0x0B: con_gotoxy(0, top); return;
+    case 0x1C: if (x < CON_COLS - 1) con_gotoxy(x + 1, y); return;
+    case 0x1D: if (x) con_gotoxy(x - 1, y); return;
+    case 0x1E: if (y > top) con_gotoxy(x, y - 1); return;
+    case 0x1F: if (y < CON_ROWS - 1) con_gotoxy(x, y + 1); return;
+    default: return;                                /* 07h campana y el resto */
+    }
 }
 
 static void print_dollar(uint16_t a) {

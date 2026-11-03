@@ -106,6 +106,7 @@ static void cmd_help(void) {
     con_puts("CLS               clear the console\n");
     con_puts("TIME              milliseconds and VBlanks\n");
     con_puts("BEEP              beep on the Magic Sound 2\n");
+    con_puts("KEYB [US|ES]      keyboard layout (the OSD sets it at boot)\n");
     con_puts("PLAY              four-channel tune on the Magic Sound 2\n");
     con_puts("DIR               files on the disk in drive A (MSX-DOS, 720 KB)\n");
     con_puts("LOAD file [addr]  load a file from disk into physical memory (000000)\n");
@@ -363,6 +364,16 @@ static uint8_t try_boot(uint8_t verbose) {
     return 1;
 }
 
+/* ---- KEYB [US|ES]: distribucion del teclado (la del OSD al arrancar) */
+static void cmd_keyb(const char* arg) {
+    char a = arg[0] | 0x20, b = arg[1] | 0x20;
+    if (a == 'e' && b == 's') kbd_set_layout(KBD_LAYOUT_ES);
+    else if (a == 'u' && b == 's') kbd_set_layout(KBD_LAYOUT_US);
+    else if (*arg) { con_puts("KEYB [US|ES]\n"); return; }
+    con_puts("Keyboard: ");
+    con_puts(kbd_get_layout() == KBD_LAYOUT_ES ? "Spanish (ES)\n" : "US\n");
+}
+
 static char line[64];
 
 void main(void) {
@@ -418,6 +429,7 @@ void main(void) {
         else if (streq(cmd, "cls")) con_clear();
         else if (streq(cmd, "time")) cmd_time();
         else if (streq(cmd, "beep")) beep(150);
+        else if (streq(cmd, "keyb")) cmd_keyb(arg);
         else if (streq(cmd, "mod")) cmd_mod(arg);
         else if (streq(cmd, "dir")) cmd_dir();
         else if (streq(cmd, "520ex")) cmd_520ex();

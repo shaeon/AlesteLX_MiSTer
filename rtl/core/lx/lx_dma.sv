@@ -60,6 +60,7 @@ module lx_dma (
     logic [7:0]  data;
     typedef enum logic [1:0] {T_IDLE, T_RD, T_WR} tstate_t;
     tstate_t st;
+    logic gap;
 
     logic ack_q;
     always_ff @(posedge clk) ack_q <= cs_i & ~ack_q;
@@ -69,7 +70,10 @@ module lx_dma (
     wire [1:0] mode = ctrl[2:1];
 
     always_comb begin
-        dma_cyc_o = (st == T_RD) || (st == T_WR);
+        // un ciclo sin peticion tras cada byte: el arbitro del segundo maestro
+        // puede dar el bus a la Magic Sound 2 entre medias (si no, una copia
+        // larga, como el scroll de la consola, la dejaba sin muestras)
+        dma_cyc_o = ((st == T_RD) || (st == T_WR)) && !gap;
         dma_we_o  = (st == T_WR);
         dma_adr_o = (st == T_WR) ? d_adr : s_adr;
         dma_dat_o = (mode == 2'd1) ? key : data;
@@ -82,9 +86,10 @@ module lx_dma (
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            ctrl <= '0; busy <= 1'b0; done <= 1'b0; st <= T_IDLE;
+            ctrl <= '0; busy <= 1'b0; done <= 1'b0; st <= T_IDLE; gap <= 1'b0;
             r_src <= '0; r_dst <= '0; r_w <= '0; r_h <= '0; r_ss <= '0; r_ds <= '0; key <= '0;
         end else begin
+            gap <= dma_cyc_o && (dma_ack_i || dma_err_i);
             if (st == T_RD && (dma_ack_i || dma_err_i)) begin
                 data <= dma_dat_i;
                 st   <= T_WR;                       // (salvo transparente: do_next)
