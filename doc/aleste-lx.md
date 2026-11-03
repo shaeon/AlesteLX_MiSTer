@@ -350,6 +350,7 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 | ROM | Resultado en simulación |
 |---|---|
 | MSXTEST (funciones de MSX-DOS 1) | fecha y hora puestas y leídas, día de la semana, asignación, bloques de 300 × 1 byte con fin de fichero, sector absoluto |
+| ZEXDOC y ZEXALL (`lx/dos/test/zex`, en `sd/LXDOS.DSK`) | arrancan en el LX-DOS (cabecera y primera prueba); completos, en la placa |
 | M80 y L80 (de `alestedos-dev.dsk` del 520EX) con `lx/dos/test/TEST.MAC` | `m80 =test`, `l80 test,test/n/e` y `test`: ensambla, enlaza y el TEST.COM nuevo se ejecuta |
 | MSXTEST (`lx/dos/test/msxtest.asm`) | fecha y hora del reloj, 1Bh, bloques 26h/27h (escribe 300, lee 500: fin de fichero y 300 leídos, datos iguales) y sector absoluto 2Fh correctos |
 | LX-DOS (`sd/LXDOS.DSK`) | arranca; HELLO (consola, BIOS, argumentos) y FILETEST (crear, escribir, cerrar, abrir, leer, renombrar, buscar y borrar) correctos; el disco queda coherente (`+dsk_out=`) |
