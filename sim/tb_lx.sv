@@ -16,6 +16,8 @@
 module tb_lx;
 
     logic clk_system = 0, clk_bus = 0, clk_pixel = 0, pll_locked = 0;
+    logic clk_vid = 0;                     // video del modo CPC (80 MHz)
+    always #6.25 clk_vid = ~clk_vid;
     always #4.6296 clk_system = ~clk_system;
     // Reloj de captura de las lecturas (SDRAM_DQ_CLK): clk_system retrasado 1,5 ns
     wire clk_dq;
@@ -192,7 +194,7 @@ module tb_lx;
 `ifdef SDRAM_DQ_CLK
         .sdram_dq_clk(clk_dq),
 `endif
-        .clk_system, .clk_bus, .clk_pixel, .pll_locked,
+        .clk_system, .clk_bus, .clk_pixel, .pll_locked, .clk_vid,
         .user_reset(1'b0), .boot_mode(2'd0),
         .key_strobe(k_strobe), .key_pressed(k_pressed), .key_extended(1'b0), .key_code(k_code),
         .fdc_fast(fdc_fast), .fdc_one_drive(1'b0),
@@ -319,6 +321,16 @@ module tb_lx;
         if (dut.lx_sound2.todo != 0) ms2_late++;
     end
 
+    // Interrupciones atendidas en modo legacy (520EX/CPC)
+    int legacy_ints = 0;
+    always @(posedge clk_bus) if (dut.int_ack && !dut.cfg_native) legacy_ints++;
+    int legacy_reqs = 0;
+    logic cpc_int_q = 0;
+    always @(posedge clk_bus) begin
+        cpc_int_q <= dut.cpc_int;
+        if (dut.cpc_int && !cpc_int_q && !dut.cfg_native) legacy_reqs++;
+    end
+
     // Primeros accesos de la CPU al bus (+nbus=N)
     int n_bus = 0, max_bus = 0;
     int bus_t0_us = 0;
@@ -441,6 +453,7 @@ module tb_lx;
                 $display("   imagen del disco guardada en %s", dof);
             end
         end
+        $display("== Interrupciones en modo legacy: %0d pedidas, %0d atendidas", legacy_reqs, legacy_ints);
         $display("== MS2: %0d ticks, %0d con lecturas atrasadas", ms2_ticks, ms2_late);
         $display("== MS2: salida izquierda de %0d a %0d, %0d cambios de signo", a_min, a_max, a_flips);
         begin

@@ -226,7 +226,7 @@ z80_system z80_sys (
     .dbg_ack_o(),
 
     .nmi_req_i(ms_nmi),                 // MagicSound: fin de bloque de DMA
-    .int_req_i(lx_mode ? lx_int : cpc_int),   // modo LX: INT del PIC del Aleste LX (rtl/lx/lx_sys.sv)
+    .int_req_i((lx_mode & cfg_native) ? lx_int : cpc_int),   // nativo: PIC del Aleste LX (rtl/core/lx/lx_sys.sv); legacy (520EX/CPC): la del Gate Array
     .mapmod_i(extport[2]),
     .cpu_4mhz_i(~cfg_native),     // modo CPC: Z80 a 4 MHz, como el 520EX
     .cpu_turbo_i(cpu_turbo),      // OSD: 4 / 8 (turbo del 520EX) / 16 MHz

@@ -295,11 +295,32 @@ static void cmd_mod(const char* arg) {
    busca el modo legacy (CPC/520EX). Se hace lo mismo que el arranque del core
    del 520EX (BOOT520): LD BC,7F89h; XOR A; y en FFFEh OUT (0F0h),A, que pasa
    la MMU a modo legacy; la CPU da la vuelta a 0000h y sigue en la ROM baja
-   del 520EX como tras un reset. El reset del OSD vuelve al LX. */
+   del 520EX como tras un reset. Antes deja el CRTC y la paleta como tras un
+   reset (los registros del LX los programa la BIOS y el firmware del 520EX
+   no los toca). El reset del OSD vuelve al LX. */
 #define AL512_PHYS 0x400000UL
 static void jump_520ex(void) __naked {
     __asm
         di
+        ; El video, como tras un reset (el firmware del 520EX solo programa
+        ; los registros del 6845 y los colores): registros extendidos del
+        ; CRTC 12h-15h a 0 (puertos 20h/21h de la pagina MMIO 2) y control y
+        ; modificador de la paleta (05h y 06h) a 0
+        ld a, #2
+        out (0xF1), a
+        ld b, #0x12
+    j520_crtc:
+        ld a, b
+        out (0x20), a
+        xor a
+        out (0x21), a
+        inc b
+        ld a, b
+        cp #0x16
+        jr nz, j520_crtc
+        xor a
+        out (0x05), a
+        out (0x06), a
         ld a, #0xD3             ; OUT (0F0h),A en FFFEh
         ld (0xFFFE), a
         ld a, #0xF0
