@@ -130,6 +130,20 @@ por el temporizador de la MS2), DUMP (memoria física por la DMA), KEYS
 sincronizado con el VBlank). La primera línea lleva el tiempo desde el
 arranque.
 
+### Modo 320×200 con 256 colores (8 bpp lineal)
+
+El CRTC extendido ya lo tiene: R18 = 03h (8 bpp), R19 = byte alto de la
+VRAM, R20 = 07h (dirección lineal, paso de 4 bytes dos veces por carácter: 8
+bytes), R21 = 02h (8 bytes por carácter), R12/R13 = inicio, con R1 = 40,
+R6 = 25 y R9 = 7 como el modo de texto. Un byte por píxel, 64 000 bytes; la
+paleta da 256 colores de 4096. `lx/dos/test/gfx/gfx8test.asm`
+(GFX8TEST.COM) lo prueba con la VRAM en C50000: en simulación, la imagen del
+core es idéntica píxel a píxel a la del emulador alestelx.
+
+640×200 con 256 colores necesita 16 bytes por carácter (R21 = 03h), pero el
+contador de direcciones lineales avanza como mucho 8 (paso de 4, dos veces
+por carácter): hace falta ampliarlo.
+
 ## LX-DOS
 
 Sistema de disco propio del LX, compatible con los programas de CP/M 2.2 y
