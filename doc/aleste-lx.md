@@ -179,7 +179,11 @@ MSX-DOS 1. La ROM, al arrancar (o con la orden `BOOT` del monitor), busca
 monitor. `sd/LXDOS.DSK` es un disco de arranque con `HELLO.COM` de prueba.
 
 `LXDOS.SYS` (`lx/dos`) se compila aparte y usa los drivers de la ROM por sus
-direcciones fijas: `lx/build.sh` saca del mapa de la ROM sus símbolos
+direcciones fijas. Por eso la ROM y el sistema tienen que ser de la misma
+compilación: `build.sh` graba una huella de la ABI (16 bits del CRC de
+`bios_abi.asm`) en la ROM (`bios_abi_id`) y en la cabecera de `LXDOS.SYS`
+(`LXDS` y la huella en 0007h); si no coinciden, la ROM avisa y se queda en
+el monitor en vez de colgarse. Las direcciones: `lx/build.sh` saca del mapa de la ROM sus símbolos
 públicos residentes (ventana 3) a `lx/build/bios_abi.asm`. Las dos cosas se
 compilan juntas.
 

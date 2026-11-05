@@ -291,6 +291,11 @@ static void cmd_mod(const char* arg) {
     mod_play();
 }
 
+/* Huella de la ABI de esta ROM: la escribe build.sh en LX.ROM (CRC de
+   bios_abi.asm); LXDOS.SYS lleva la misma en su cabecera y la ROM no arranca
+   uno de otra compilacion (se colgaria llamando a direcciones viejas) */
+volatile const uint16_t bios_abi_id = 0xFFFF;
+
 /* ---- Modo compatible Aleste 520EX
    boot.rom = LX.ROM + AL512.BIN: el cargador deja AL512 en 400000, donde la
    busca el modo legacy (CPC/520EX). Se hace lo mismo que el arranque del core
@@ -378,6 +383,16 @@ static uint8_t try_boot(uint8_t verbose) {
     tune_stop();
     mod_stop();
     if (fat_load(&e, SYS_PHYS, 0)) { con_puts("Disk error while loading LXDOS.SYS.\n"); return 0; }
+    {   /* cabecera "LXDS" + huella de la ABI de esta ROM (build.sh) */
+        static uint8_t h[6];
+        dma_copy(SYS_PHYS + 7, dma_phys(h), 6);
+        if (h[0] != 'L' || h[1] != 'X' || h[2] != 'D' || h[3] != 'S' ||
+            (h[4] | (h[5] << 8)) != bios_abi_id) {
+            con_puts("LXDOS.SYS was built for another ROM: use boot.rom and LXDOS.SYS\n");
+            con_puts("from the same build.\n");
+            return 0;
+        }
+    }
     int_uninstall();                    /* las rutinas de la ROM dejan de valer */
     timer_uninstall();
     snd_uninstall();

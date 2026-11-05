@@ -4,10 +4,13 @@
 ; cerradas. La pila va arriba de la ventana 2; la 3 son los drivers residentes.
 EXTERN _main
 EXTERN __int_isr
+INCLUDE "abi_id.inc"
 SECTION code_crt_start
     di
     ld sp, 0xC000
     jp start
+    defm "LXDS"                 ; 0007h: cabecera que comprueba la ROM
+    defw ABI_ID                 ; 000Bh: huella de la ABI de la ROM (build.sh)
     defs 0x0038 - $
     jp __int_isr                ; IM 1: el despachador de interrupciones de la ROM
     defs 0x0066 - $

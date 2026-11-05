@@ -60,11 +60,24 @@ awk '$1 !~ /_(head|tail|size)$/ && $6 == "public," && ($9 == "DRV_CODE," || $9 =
     build/aleste.map > ../bios_abi.asm
 echo "lx/build/bios_abi.asm: $(grep -c '^PUBLIC' ../bios_abi.asm) simbolos"
 
+# ---- Huella de la ABI (16 bits del CRC de bios_abi.asm): se graba en la ROM
+# (bios_abi_id, main.c) y en la cabecera de LXDOS.SYS ("LXDS" + huella en 0007h);
+# la ROM no arranca un LXDOS.SYS de otra compilacion (se colgaria al llamar a
+# los drivers por direcciones que ya no son las suyas)
+ABI_ID=$(( $(cksum < ../bios_abi.asm | cut -d' ' -f1) & 0xFFFF ))
+ABI_AT=$(awk '$1 == "_bios_abi_id" { print substr($3, 2) }' build/aleste.map)
+[ -n "$ABI_AT" ] || { echo "falta bios_abi_id en la ROM"; exit 1; }
+printf "$(printf '\\%03o\\%03o' $((ABI_ID & 255)) $((ABI_ID >> 8)))" | \
+    dd of=build/LX.ROM bs=1 seek=$((0x$ABI_AT)) conv=notrunc 2>/dev/null
+cp build/LX.ROM ../LX.ROM
+printf 'defc ABI_ID = 0x%04X\n' $ABI_ID > ../abi_id.inc
+echo "huella de la ABI: $(printf '%04X' $ABI_ID) (en $ABI_AT)"
+
 # ---- LXDOS.SYS: el sistema que la ROM arranca del disco (lx/dos)
 cd ../..
 rm -rf build/dos
 mkdir -p build/dos
-cp dos/*.c dos/*.h dos/*.asm build/dos/
+cp dos/*.c dos/*.h dos/*.asm build/abi_id.inc build/dos/
 cd build/dos
 zcc +z80 -vn -O3 --no-crt -m -I../src/include -I../src -s -clib=sdcc_iy -DFAT_WRITE -o lxdos \
     sections.asm crt0_dos.asm ../bios_abi.asm \
