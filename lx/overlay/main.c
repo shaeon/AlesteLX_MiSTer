@@ -14,6 +14,7 @@
 #include "drivers/timer.h"
 #include "drivers/dma.h"
 #include "drivers/kbd.h"
+#include "drivers/vbuf8.h"
 #include "drivers/snd.h"
 #include "tune.h"
 #include "mod.h"
@@ -395,6 +396,81 @@ static void cmd_keyb(const char* arg) {
     con_puts(kbd_get_layout() == KBD_LAYOUT_ES ? "Spanish (ES)\n" : "US\n");
 }
 
+/* ---- GFX: prueba del modo 320x200x256 (driver vbuf_64k8b) */
+static const uint8_t gfx_sprite[16 * 16] = {
+#define _ 0
+#define o 1
+#define W 15
+#define Y 14
+    _,_,_,_,_,Y,Y,Y,Y,Y,Y,_,_,_,_,_,
+    _,_,_,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,_,_,_,
+    _,_,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,_,_,
+    _,Y,Y,Y,o,o,Y,Y,Y,Y,o,o,Y,Y,Y,_,
+    _,Y,Y,Y,o,o,Y,Y,Y,Y,o,o,Y,Y,Y,_,
+    Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+    Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+    Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,
+    Y,Y,o,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,o,Y,Y,
+    Y,Y,Y,o,Y,Y,Y,Y,Y,Y,Y,Y,o,Y,Y,Y,
+    _,Y,Y,Y,o,o,Y,Y,Y,Y,o,o,Y,Y,Y,_,
+    _,Y,Y,Y,Y,Y,o,o,o,o,Y,Y,Y,Y,Y,_,
+    _,_,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,_,_,
+    _,_,_,Y,Y,Y,Y,Y,Y,Y,Y,Y,Y,_,_,_,
+    _,_,_,_,_,Y,Y,Y,Y,Y,Y,_,_,_,_,_,
+    _,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,
+#undef _
+#undef o
+#undef W
+#undef Y
+};
+
+static void gfx_palette(void) {
+    static const uint16_t base[16] = {
+        0x000, 0x00A, 0x0A0, 0x0AA, 0xA00, 0xA0A, 0xA50, 0xAAA,
+        0x555, 0x55F, 0x5F5, 0x5FF, 0xF55, 0xF5F, 0xFF5, 0xFFF };
+    uint16_t i;
+    for (i = 0; i < 16; i++) palette_set_color_12b((uint8_t)i, base[i]);
+    /* 16-255: rueda de tonos (6 tramos de 40) */
+    for (i = 0; i < 240; i++) {
+        uint8_t seg = i / 40, t = (uint8_t)((i % 40) * 15 / 39);
+        uint8_t r = 0, g = 0, b = 0;
+        switch (seg) {
+        case 0: r = 15; g = t; break;
+        case 1: r = 15 - t; g = 15; break;
+        case 2: g = 15; b = t; break;
+        case 3: g = 15 - t; b = 15; break;
+        case 4: r = t; b = 15; break;
+        default: r = 15; b = 15 - t; break;
+        }
+        palette_set_color_12b((uint8_t)(16 + i), ((uint16_t)r << 8) | (g << 4) | b);
+    }
+}
+
+static void cmd_gfx(void) {
+    uint16_t i;
+    vbuf8_activate();
+    gfx_palette();
+    vbuf8_clear(0);
+    for (i = 0; i < 240; i++) vbuf8_vline(40 + i, 10, 60, (uint8_t)(16 + i));   /* la rueda de tonos */
+    for (i = 0; i < 16; i++) vbuf8_fill_rect(8 + i * 19, 80, 16, 24, (uint8_t)i);
+    for (i = 0; i < 16; i++) vbuf8_line(160, 190, (uint16_t)(i * 21), 112, (uint8_t)(16 + i * 15));
+    vbuf8_rect(4, 4, 312, 192, 15);
+    vbuf8_rect(6, 6, 308, 188, 9);
+    vbuf8_colors(15, 0, 1);
+    vbuf8_text("Aleste LX - 320x200, 256 colours", 32, 30);
+    vbuf8_colors(14, 1, 0);
+    vbuf8_text(" vbuf_64k8b ", 112, 46);
+    vbuf8_key(0, 1);
+    for (i = 0; i < 4; i++) vbuf8_bitmap(gfx_sprite, 40 + i * 70, 130, 16, 16);
+    vbuf8_key(0, 0);
+    vbuf8_copy(40, 130, 250, 160, 16, 16);
+    while (!kbd_hit()) ;
+    kbd_getc();
+    vbuf8_text_mode();
+    palette_set_color_12b(0, 0x0026);
+    palette_set_color_12b(1, 0x0FFF);
+}
+
 static char line[64];
 
 void main(void) {
@@ -451,6 +527,7 @@ void main(void) {
         else if (streq(cmd, "time")) cmd_time();
         else if (streq(cmd, "beep")) beep(150);
         else if (streq(cmd, "keyb")) cmd_keyb(arg);
+        else if (streq(cmd, "gfx")) cmd_gfx();
         else if (streq(cmd, "mod")) cmd_mod(arg);
         else if (streq(cmd, "dir")) cmd_dir();
         else if (streq(cmd, "520ex")) cmd_520ex();

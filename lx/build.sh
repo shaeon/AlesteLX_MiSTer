@@ -26,7 +26,7 @@ zcc +z80 -vn -O3 --no-crt -m -Iinclude -I. -s -clib=sdcc_iy -o build/aleste \
     bios/errors.asm bios/undefined_method.asm \
     drivers/mmu/mmu.asm drivers/mmu/mmu_mem.asm drivers/crtc/crtc.asm \
     drivers/palette/palette.asm drivers/palette/palette_12b.asm \
-    drivers/vbuf/vbuf_16k1b.asm drivers/vbuf/vbuf.asm \
+    drivers/vbuf/vbuf_16k1b.asm drivers/vbuf/vbuf_64k8b.asm drivers/vbuf/vbuf.asm \
     drivers/audio/aduio_ay8910.asm drivers/audio/audio.asm \
     drivers/int/int.asm drivers/int/int_lx.asm \
     drivers/timer/timer.asm drivers/timer/timer_lx.asm \
@@ -34,7 +34,7 @@ zcc +z80 -vn -O3 --no-crt -m -Iinclude -I. -s -clib=sdcc_iy -o build/aleste \
     drivers/kbd/kbd.asm drivers/kbd/kbd_lx.asm \
     drivers/snd/snd.asm drivers/snd/snd_ms2.asm bios/irqsave.asm bios/boot.asm bios/dosgate.asm \
     drivers/fdc/fdc.asm drivers/fdc/fdc_765.asm \
-    src/drivers/mmu.c src/drivers/mmu_mem.c src/drivers/crtc.c src/drivers/palette.c \
+    src/drivers/mmu.c src/drivers/mmu_mem.c src/drivers/crtc.c src/drivers/palette.c src/drivers/vbuf8.c \
     src/drivers/vbuf.c src/drivers/audio.c \
     src/drivers/int.c src/drivers/timer.c src/drivers/dma.c src/drivers/kbd.c src/drivers/snd.c src/drivers/fdc.c \
     src/console.c src/tune.c src/mod.c src/fat.c main.c
@@ -70,7 +70,7 @@ zcc +z80 -vn -O3 --no-crt -m -I../src/include -I../src -s -clib=sdcc_iy -DFAT_WR
     sections.asm crt0_dos.asm ../bios_abi.asm \
     ../src/src/drivers/int.c ../src/src/drivers/timer.c ../src/src/drivers/dma.c \
     ../src/src/drivers/kbd.c ../src/src/drivers/snd.c ../src/src/drivers/fdc.c \
-    ../src/src/drivers/vbuf.c ../src/src/console.c ../src/src/fat.c ../src/src/mod.c bdos.c main.c
+    ../src/src/drivers/vbuf.c ../src/src/console.c ../src/src/fat.c ../src/src/mod.c gfx8.c bdos.c main.c
 cat lxdos_code_crt_start.bin > LXDOS.SYS
 head -c $((0x100 - $(wc -c < lxdos_code_crt_start.bin))) /dev/zero >> LXDOS.SYS
 cat lxdos_code_compiler.bin >> LXDOS.SYS

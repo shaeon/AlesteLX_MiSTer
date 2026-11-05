@@ -34,8 +34,10 @@
 #include "fat.h"
 #include "bdos.h"
 #include "mod.h"
+#include "gfx8.h"
 
 static uint8_t music_play(uint16_t a);
+static uint16_t gfx_call(uint8_t fn, uint16_t de);
 static void    music_info(uint16_t a);
 
 #define TPA_PHYS  0xC90000UL
@@ -566,6 +568,8 @@ static uint16_t bdos_c(void) {
     case 28: case 29: case 30: case 31: return 0;
     case 0xA0: return music_play(de);
     case 0xA1: music_info(de); return 0;
+    case 0xA2: case 0xA3: case 0xA4: case 0xA5: case 0xA6: case 0xA7: case 0xA9:
+        return gfx_call(fn, de);
     default:
         return 0;
     }
@@ -622,6 +626,58 @@ static void music_info(uint16_t a) {
     for (i = 0; i < 3 && k[i]; i++) buf[5 + i] = k[i];
     for (i = 0; i < 20 && t[i]; i++) buf[9 + i] = t[i];
     to_tpa(a, buf, sizeof(buf));
+}
+
+/* ---- Graficos del LX-DOS: 320x200 con 256 colores (gfx8.c), extension
+   propia del BDOS. Los bloques de parametros estan en la TPA (16 bits con el
+   byte bajo primero):
+   A2h  DE = nombre ASCIIZ de una imagen .LXI: la muestra (pone el modo);
+        DE = 0: vuelve al texto. A = 0 bien, 1 no esta, 2 disco, 3 formato
+   A3h  E = 1 modo grafico (lo que haya en la VRAM), 0 texto
+   A4h  DE = paleta: 256 colores de 2 bytes (0RGB de 12 bits)
+   A5h  DE = x, y, w, h, color: rectangulo relleno
+   A6h  DE = x, y, w, h, origen (en la TPA, lineas de w bytes),
+        transparente (0/1), clave: copia de un rectangulo
+   A7h  DE = x, y, tinta, fondo, transparente (0/1), texto (ASCIIZ en la TPA)
+   A9h  E = lineas (con signo: > 0 sube), D = color del hueco: scroll
+   Al acabar un programa, si dejo el modo grafico, se vuelve al texto. */
+static int16_t p16(const uint8_t* b) { return (int16_t)(b[0] | (b[1] << 8)); }
+
+static uint16_t gfx_call(uint8_t fn, uint16_t de) {
+    static uint8_t b[16];
+    static char str[66];
+    switch (fn) {
+    case 0xA2:
+        if (!de) { gfx8_mode(0); return 0; }
+        from_tpa(de, str, 16);
+        str[15] = 0;
+        {
+            uint8_t i, d = dos_drive;
+            char* n = str;
+            for (i = 0; str[i]; i++) if (str[i] >= 'a' && str[i] <= 'z') str[i] -= 32;
+            if (n[0] && n[1] == ':') { d = (n[0] - 'A') & 1; n += 2; }
+            return gfx8_view(d, n);
+        }
+    case 0xA3: gfx8_mode((uint8_t)de & 1); return 0;
+    case 0xA4: gfx8_palette_phys(TPA_PHYS + de, 0, 256); return 0;
+    case 0xA5:
+        from_tpa(de, b, 9);
+        gfx8_fill(p16(b), p16(b + 2), p16(b + 4), p16(b + 6), b[8]);
+        return 0;
+    case 0xA6:
+        from_tpa(de, b, 12);
+        gfx8_blit(TPA_PHYS + (uint16_t)p16(b + 8), (uint16_t)p16(b + 4), p16(b), p16(b + 2),
+                  p16(b + 4), p16(b + 6), b[10], b[11]);
+        return 0;
+    case 0xA7:
+        from_tpa(de, b, 9);
+        from_tpa((uint16_t)p16(b + 7), str, 64);
+        str[64] = 0;
+        gfx8_text(p16(b), p16(b + 2), str, b[4], b[6] ? GFX8_TRANSPARENT : b[5]);
+        return 0;
+    case 0xA9: gfx8_scroll((int8_t)(uint8_t)de, (uint8_t)(de >> 8)); return 0;
+    }
+    return 0;
 }
 
 /* ---- BIOS de CP/M: A = funcion, C = caracter */
@@ -722,6 +778,7 @@ uint8_t dos_run(const char* name, const char* args) {
     _dos_bios_vec = (uint16_t)bios_c;
     dma_addr = 0x80;
     exec_asm();
+    gfx8_mode(0);                               /* si dejo el modo grafico, al texto */
     fat_sync();                                 /* lo que el programa dejo a medias */
     if (con_getx()) con_putc('\n');
     return DOS_RUN_OK;

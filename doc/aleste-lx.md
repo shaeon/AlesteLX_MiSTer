@@ -142,7 +142,32 @@ core es idéntica píxel a píxel a la del emulador alestelx.
 
 640×200 con 256 colores necesita 16 bytes por carácter (R21 = 03h), pero el
 contador de direcciones lineales avanza como mucho 8 (paso de 4, dos veces
-por carácter): hace falta ampliarlo.
+por carácter) y el `video_buffer` lee 4 bytes por petición y hace como mucho
+dos peticiones por carácter: hace falta rediseñar el búfer (y comprobar el
+ancho de banda de la SDRAM, unos 27 MB/s).
+
+Driver (`lx/dos/gfx8.c`, en el LX-DOS): poner y quitar el modo (guarda y
+restaura el CRTC y los colores del texto), paleta, borrar, rectángulo
+relleno, copia de rectángulos opaca o con color transparente, scroll
+vertical y texto con la fuente de la BIOS; lo que mueve memoria lo hace la
+DMA. Imágenes `.LXI` (`tools/img2lx.py`): `LXI1`, ancho, alto, número de
+colores, paleta de 12 bits y píxeles. Los programas lo usan con funciones
+propias del BDOS:
+
+| Función | Entrada | |
+|---|---|---|
+| A2h | DE = nombre ASCIIZ (0 = texto) | muestra una imagen .LXI; A = 0 bien, 1 no está, 2 disco, 3 formato |
+| A3h | E = 1 / 0 | modo gráfico / texto |
+| A4h | DE = 512 bytes | paleta de 256 colores (0RGB de 12 bits) |
+| A5h | DE = x, y, w, h, color | rectángulo relleno |
+| A6h | DE = x, y, w, h, origen, transparente, clave | copia un rectángulo de la TPA |
+| A7h | DE = x, y, tinta, fondo, transparente, texto | texto 8×8 |
+| A9h | E = líneas (con signo), D = color | scroll |
+
+Al acabar un programa que dejó el modo gráfico, el LX-DOS vuelve al texto.
+`VIEW.COM` (visor: `VIEW`, `VIEW *.LXI`; una tecla la siguiente, Esc sale) y
+`TUNNEL.COM` (rectángulos, texto y paleta rotando) están en `lx/dos/test/gfx`
+y en `sd/LXDOS.DSK`, con cuatro imágenes de ejemplo.
 
 ## LX-DOS
 
@@ -391,6 +416,7 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 | ROM | Resultado en simulación |
 |---|---|
 | MSXTEST (funciones de MSX-DOS 1) | fecha y hora puestas y leídas, día de la semana, asignación, bloques de 300 × 1 byte con fin de fichero, sector absoluto |
+| VIEW, TUNNEL (en `sd/LXDOS.DSK`) | las cuatro imágenes de ejemplo y la demo de la paleta, en el emulador |
 | MODPLAY LXDEMO.MOD | carga y toca el MOD de fondo y vuelve al DOS; MODPLAY sin nada dice qué suena |
 | ZEXDOC y ZEXALL (`lx/dos/test/zex`, en `sd/LXDOS.DSK`) | arrancan en el LX-DOS (cabecera y primera prueba); completos, en la placa |
 | M80 y L80 (de `alestedos-dev.dsk` del 520EX) con `lx/dos/test/TEST.MAC` | `m80 =test`, `l80 test,test/n/e` y `test`: ensambla, enlaza y el TEST.COM nuevo se ejecuta |
