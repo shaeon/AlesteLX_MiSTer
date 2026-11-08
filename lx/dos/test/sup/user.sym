@@ -1,0 +1,13 @@
+N		EQU 003E8H
+RESULTS		EQU 05000H
+add_local	EQU 0017FH
+busy		EQU 00144H
+busy2		EQU 00147H
+msg		EQU 00181H
+pm		EQU 00167H
+pm_end		EQU 00175H
+start		EQU 00100H
+t_call		EQU 0012BH
+t_call_end	EQU 0013EH
+t_sys		EQU 00117H
+t_sys_end	EQU 00128H

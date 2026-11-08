@@ -183,6 +183,23 @@ MSX-DOS). El formato que se va a probar en el núcleo: `RST 30h`, `DB 0FFh`,
 el supervisor), con los argumentos en registros. Prueba de la MMU
 (`sim/unit/mmu_native`): 49/49.
 
+**Prototipo funcionando** (`lx/dos/test/sys/systest.asm`, `SYSTEST.COM` en
+`sd/LXDOS.DSK`): un núcleo mínimo dentro del LX-DOS pone en marcha un
+programa en modo usuario (sus páginas 0-1 en el slot 2, privadas; las 2-3
+compartidas con el supervisor: pila, código de salida y drivers) y le atiende
+las llamadas `RST 30h` / `DB 0FFh` / `DW número`: lee los 3 bytes de detrás
+del RST en la memoria del usuario, despacha por una tabla y vuelve detrás de
+ellos, con el resultado en HL y el error en el acarreo; un slot distinto de
+FFh o una función que no existe dan error. Las interrupciones que llegan en
+modo usuario entran por la trampa de 0038h, pasan por la rutina del LX-DOS y
+vuelven al usuario. Resultado, igual en el core (simulación) y en el
+emulador: 1011 llamadas, 8 interrupciones en modo usuario (teclas pulsadas
+durante la espera), página privada y compartida bien. Coste en el emulador:
+1511 ciclos por llamada nula (≈ 84 µs a 18 MHz), sin optimizar: casi todo es
+leer los 3 bytes del usuario cambiando el mapa una vez por byte. Con los
+programas en marcha, el LX-DOS solo deja activa la línea del teclado en el
+PIC.
+
 ## LX-DOS
 
 Sistema de disco propio del LX, compatible con los programas de CP/M 2.2 y
