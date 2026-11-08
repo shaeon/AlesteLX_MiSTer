@@ -169,6 +169,20 @@ Al acabar un programa que dejó el modo gráfico, el LX-DOS vuelve al texto.
 `TUNNEL.COM` (rectángulos, texto y paleta rotando) están en `lx/dos/test/gfx`
 y en `sd/LXDOS.DSK`, con cuatro imágenes de ejemplo.
 
+### Llamada al sistema: RST 6 (prototipo)
+
+Acordado con hww en principio: la llamada al sistema es `RST 6`, y se quita
+la de puerto (`F2h`, `F2xxh` en legacy), que queda libre. En el M1 de 0030h
+en modo usuario, la MMU pasa a supervisor, igual que con las trampas de
+0038h/0066h. Se activa con el **bit 3 del registro de control (F0h)**, de
+forma **provisional** hasta que hww fije el bit y su polaridad: 1 = activa,
+0 tras el reset, así que el software actual no cambia. Solo actúa en modo
+nativo: en legacy, 0030h es de los programas (user restart del CPC, CALLF de
+MSX-DOS). El formato que se va a probar en el núcleo: `RST 30h`, `DB 0FFh`,
+`DW número_de_función` (el de un CALLF de MSX con el slot FFh reservado para
+el supervisor), con los argumentos en registros. Prueba de la MMU
+(`sim/unit/mmu_native`): 49/49.
+
 ## LX-DOS
 
 Sistema de disco propio del LX, compatible con los programas de CP/M 2.2 y

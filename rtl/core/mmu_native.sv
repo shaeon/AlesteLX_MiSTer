@@ -75,7 +75,8 @@ module mmu_native (
     // The control registers F0-F7
     localparam CONTROL_REG_ADDR = 8'hF0; 
     localparam MMIO_PAGE_ADDR   = 8'hF1; 
-    localparam SYSCALL_ADDR     = 8'hF2; // F2XX in the legacy mode  
+    // F2h (F2xxh en legacy) era la llamada al sistema por puerto: se ha quitado
+    // (la llamada al sistema es RST 6, ver la trampa mas abajo). F2h queda libre.
     localparam CLOCK_CTRL_ADDR  = 8'hF3; 
     // The memory management F8-FF
     localparam SLOT_SUPER_ADDR  = 8'hFA; 
@@ -109,7 +110,6 @@ module mmu_native (
     logic [3:0]  mapper_index;                    // Индекс в reg_bank
     logic [1:0]  cpu_page;                        // 00=0-3FFF, 01=4000-7FFF, 10=8000-BFFF, 11=C000-FFFF
     
-    logic [7:0]  reg_syscall_function;
     logic        supervisor_mode_reg;             // Текущий режим привилегий
 
     // =========================================================================
@@ -124,6 +124,10 @@ module mmu_native (
     wire reg_ctrl_native_mode  = reg_control[1];  // запретить использование легаси регистров
     wire reg_ctrl_trap_enabled = reg_control[2];  // разрешить ловушку для supervisor
     wire reg_ctrl_user_lock    = reg_control[4];  // разрешить доступ к портам в режиме пользователя
+    // PROVISIONAL (pendiente de hww): bit 3 = rst6_hook, 1 = la trampa de RST 6
+    // (0030h) activa. Solo en modo nativo: en legacy (520EX/CPC/MSX-DOS) 0030h
+    // es de los programas (user restart del CPC, CALLF de MSX)
+    wire reg_ctrl_rst6_hook    = reg_control[3];
     // Combinational supervisor view (includes test override)
     wire supervisor_mode = supervisor_mode_reg || debug_supervisor_mode_i;
 
@@ -197,13 +201,11 @@ module mmu_native (
     // =========================================================================
     // 3. СУПЕРВИЗОР MODE и TRAP (исправлено)
     // =========================================================================
-    // SysCall
-    wire is_syscall_trigger_cs = (SYSCALL_ADDR == (reg_ctrl_native_mode ?  cpu_a[7:0] : cpu_a[15:8]));
-    // uses is_io_access instead is_mmu_access потому что полный дешифратор в is_syscall_trigger_cs
-    wire is_syscall_access  = is_io_access && is_syscall_trigger_cs;  
-    wire is_syscall_trigger = is_syscall_access && is_write;  
-    // Trap
-    wire trap_condition = m1_detected & reg_ctrl_trap_enabled & (cpu_a == 16'h0038 || cpu_a == 16'h0066);
+    // Trampas: 0038h/0066h (interrupciones, bit 2) y la llamada al sistema
+    // RST 6 (0030h, bit 3, solo en modo nativo), en el M1 de esa direccion
+    wire trap_condition = m1_detected & (
+        (reg_ctrl_trap_enabled & (cpu_a == 16'h0038 || cpu_a == 16'h0066)) |
+        (reg_ctrl_rst6_hook & reg_ctrl_native_mode & (cpu_a == 16'h0030)));
     
     logic supervisor_exit_pending;
     
@@ -215,7 +217,7 @@ module mmu_native (
             
             if (clke) begin
                 // Вход в супервизор только с прерывания или системного вызова
-                if (~supervisor_mode && (trap_condition || is_syscall_trigger)) begin
+                if (~supervisor_mode && trap_condition) begin
                     supervisor_mode_reg     <= 1'b1;
                     supervisor_exit_pending <= 1'b0;
                 end
@@ -253,7 +255,7 @@ module mmu_native (
         end else begin
             // Автосброс строба записи (всегда длится 1 такт clk)
             cpu_write_stb       <= 1'b0;
-            if ((is_syscall_access || is_mmu_access) && is_write) begin
+            if (is_mmu_access && is_write) begin
                 // Защелкиваем данные только в момент процессорного такта (clke)
                 if (clke) begin
                     current_slot_reg    <= current_slot;
@@ -283,14 +285,12 @@ module mmu_native (
             
             for (int i = 0; i < 16; i++) reg_bank[i] <= 8'h00;
 
-            reg_syscall_function    <= 8'h00;
         end else begin
             // Запись в регистры
             if (cpu_write_stb) begin
                 casez (cpu_address_reg)
                     CONTROL_REG_ADDR[4:0]:  reg_control             <= cpu_write_data_reg;  // Может изменить supervisor_mode
                     MMIO_PAGE_ADDR[4:0]:    reg_mmio_page           <= cpu_write_data_reg;
-                    SYSCALL_ADDR[4:0]:      reg_syscall_function    <= cpu_write_data_reg;
                     CLOCK_CTRL_ADDR[4:0]:   reg_clock               <= cpu_write_data_reg;
                     SLOT_SUPER_ADDR[4:0]:   reg_super_slot          <= cpu_write_data_reg;
                     SLOT_USER_ADDR[4:0]:    reg_user_slot           <= cpu_write_data_reg;
@@ -315,7 +315,6 @@ module mmu_native (
             // Управляющие регистры
             CLOCK_CTRL_ADDR[4:0]:    cpu_read_data_reg_mux = reg_clock;
             MMIO_PAGE_ADDR[4:0]:     cpu_read_data_reg_mux = reg_mmio_page;
-            SYSCALL_ADDR[4:0]:       cpu_read_data_reg_mux = reg_syscall_function;
             CONTROL_REG_ADDR[4:0]:   cpu_read_data_reg_mux = reg_control;
 
             // Слотовые регистры
@@ -418,12 +417,12 @@ module mmu_native (
     assign debug_current_slot_o     = current_slot;
     assign debug_mapper_index_o     = mapper_index;
 
-    assign debug_syscall_trigger_o  = is_syscall_trigger;
+    assign debug_syscall_trigger_o  = 1'b0;      // ya no hay llamada por puerto (F2h)
     // registers
     assign debug_reg_control_o      = reg_control;
     assign debug_reg_mmio_page_o    = reg_mmio_page;
     assign debug_reg_super_slot_o   = reg_super_slot;
     assign debug_reg_user_slot_o    = reg_user_slot;
-    assign debug_reg_syscall_function_o = reg_syscall_function;
+    assign debug_reg_syscall_function_o = 8'h00;
 
 endmodule
