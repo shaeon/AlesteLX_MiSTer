@@ -1,27 +1,28 @@
-; systest.asm - SYSTEST.COM: prototipo de la llamada al sistema RST 6 del LX
+; systest.asm - SYSTEST.COM: prototipo de la llamada al sistema OUT (F2h),A del LX
 ; Shaeon (Carlos Palmero), para el core AlesteLX_MiSTer y el emulador alestelx.
 ;
 ; Un nucleo minimo (este programa, en modo supervisor dentro del LX-DOS) pone
 ; en marcha un programa en MODO USUARIO y le atiende las llamadas al sistema
-; con el formato propuesto con hww:
+; con el mecanismo acordado con hww: escribir en el puerto F2h entra al
+; supervisor (la MMU cambia de mapa para la instruccion siguiente). El numero
+; de funcion va en A y los argumentos en registros (resultado en HL, acarreo =
+; error): el nucleo no lee nada de la memoria del usuario.
 ;
-;       RST 30h
-;       DB  0FFh            ; slot FFh = el supervisor (los demas, CALLF de MSX)
-;       DW  numero          ; numero de funcion, no una direccion
-;       ; argumentos y resultado en registros (HL resultado, acarreo = error)
+;       LD   A, funcion
+;       CALL SYSCALL        ; trampolin en la pagina compartida
 ;
-; La MMU entra al supervisor en el M1 de 0030h (bit 3 del control, provisional)
-; y en el de 0038h (interrupciones, bit 2). Mapas:
+; SYSCALL (pagina compartida): guarda IFF y desactiva las interrupciones, hace
+; OUT (F2h),A, y la instruccion siguiente (JP al nucleo) ya se lee con el mapa
+; del supervisor; como la pagina es compartida, es el mismo codigo. La vuelta
+; (OUT (F0h) con el bit 0 a 0: sale en el M1 siguiente; el acarreo; EI; RET)
+; tambien esta en la pagina compartida. Las interrupciones en modo usuario
+; entran por la trampa de 0038h (bit 2 del control). Mapas:
 ;
 ;   pagina  supervisor (el nucleo)        usuario
 ;   0       slot 3, TPA (este programa)   slot 2, banco 40h (fisica 900000h): privada
 ;   1       slot 3, TPA                   slot 2, banco 41h: privada
-;   2       slot 3, TPA: COMPARTIDA (pila del usuario, codigo de salida)
+;   2       slot 3, TPA: COMPARTIDA (pila del usuario, SYSCALL, salida, variables)
 ;   3       slot 3, drivers: COMPARTIDA
-;
-; La salida al usuario (OUT (F0h) con el bit 0 a 0: sale en el M1 siguiente;
-; POP AF; EI; RET) esta en la pagina compartida, porque las instrucciones de
-; despues del OUT se leen ya con el mapa del usuario.
 ;
 ; Funciones: 0 terminar, 1 imprimir el caracter de E, 2 HL + 1, 3 nula.
 ; El programa de usuario comprueba resultados y errores, escribe en su pagina
@@ -30,12 +31,13 @@
 ; (con los programas en marcha, el LX-DOS solo deja la linea del teclado).
 ; pasmo systest.asm SYSTEST.COM systest.sym
 BDOS     equ 5
-CTRL_USR equ 0Eh               ; nativo, trampas 0038h/0066h, RST 6; bit 0 = 0: usuario
+CTRL_USR equ 06h               ; nativo, trampas 0038h/0066h; bit 0 = 0: usuario
 UBANK0   equ 40h               ; bancos del usuario en el slot 2
 UBANK1   equ 41h
-STUB     equ 0A000h            ; en la pagina compartida
-STUB_EI  equ STUB
-STUB_DI  equ STUB + 5
+STUB     equ 0A000h            ; en la pagina compartida: SYSCALL y la salida
+SYSCALL  equ STUB
+R_C      equ 0A050h            ; compartidas: acarreo de vuelta, funcion
+FN_TMP   equ 0A051h
 USTACK   equ 0A800h
 SHARED   equ 0A030h            ; dato que el usuario escribe en la pagina compartida
 
@@ -53,18 +55,11 @@ start:  ld de, m_banner
         in a, (0F0h)
         ld (sv_f0), a
         di
-        ld hl, 0030h
-        ld de, sv_30
-        ld bc, 3
-        ldir
         ld hl, 0038h
         ld de, orig_isr        ; JP __dos_isr_gate del LX-DOS
         ld bc, 3
         ldir
-        ld a, 0C3h             ; los vectores del nucleo
-        ld (0030h), a
-        ld hl, sys_entry
-        ld (0031h), hl
+        ld a, 0C3h             ; el vector de interrupciones del nucleo
         ld (0038h), a
         ld hl, isr_wrap
         ld (0039h), hl
@@ -79,10 +74,7 @@ start:  ld de, m_banner
         ld bc, 0FFh
         ld (hl), 0
         ldir
-        ld a, 0C3h             ; los mismos vectores en la pagina 0 del usuario
-        ld (4030h), a
-        ld hl, sys_entry
-        ld (4031h), hl
+        ld a, 0C3h             ; el mismo en la pagina 0 del usuario
         ld (4038h), a
         ld hl, isr_wrap
         ld (4039h), hl
@@ -110,132 +102,44 @@ start:  ld de, m_banner
         ld sp, USTACK
         ld hl, 0100h
         push hl
-        push af
+        xor a
+        ld (R_C), a
         ld a, 1
         ld (ctx_user), a
         ld a, CTRL_USR
-        jp STUB_EI
+        jp x_ei_s
 
 ; ---------------------------------------------------------------- llamadas
-; Entrada desde el RST 30h del usuario (su 0030h y el del nucleo: JP aqui).
-; Pila: [vuelta (apunta al DB 0FFh)]
-sys_entry:
-        push af
-        ld a, i                ; P/V = IFF2: si el usuario tenia interrupciones
-        di
-        push af                ; pila: [vuelta][AF usuario][AF con IFF]
+; Desde SYSCALL, ya en supervisor, con las interrupciones desactivadas.
+; A = funcion; pila: [vuelta al usuario][AF con IFF]
+k_entry:
         ld (a_hl), hl
-        ld (a_de), de
-        ld (a_bc), bc
-        ld (a_ix), ix
-        ld (a_iy), iy
-        xor a
-        ld (ctx_user), a
-        ld hl, 4
-        add hl, sp
-        ld (retp), hl          ; donde esta la vuelta
-        ld e, (hl)
-        inc hl
-        ld d, (hl)             ; DE = vuelta: los 3 bytes de detras del RST
-        call uread
-        ld (sc_slot), a
-        inc de
-        call uread
-        ld (sc_id), a
-        inc de
-        call uread
-        ld (sc_id + 1), a
-        inc de
-        ld hl, (retp)          ; vuelve detras de los 3 bytes
-        ld (hl), e
-        inc hl
-        ld (hl), d
+        ld hl, ctx_user
+        ld (hl), 0
         ld hl, (nsys)
         inc hl
         ld (nsys), hl
-        ld a, (sc_slot)
-        inc a
-        jr nz, sc_bad          ; slot distinto de FFh: aqui no hay CALLF de MSX
-        ld hl, (sc_id)
-        ld a, h
-        or a
-        jr nz, sc_bad
-        ld a, l
+        ld hl, (a_hl)
         cp NFUNC
-        jr nc, sc_bad
+        jr nc, k_bad
+        ld l, a                ; JP numero A de la tabla (alineada a 256)
         add a, a
-        ld e, a
-        ld d, 0
-        ld hl, sc_table
-        add hl, de
-        ld e, (hl)
-        inc hl
-        ld d, (hl)
-        ld (hcall + 1), de
-        ld bc, (a_bc)
-        ld de, (a_de)
+        add a, l
+        ld l, a
+        ld h, jtab / 256
+        ld (hcall + 1), hl
         ld hl, (a_hl)
 hcall:  call 0                 ; HL = resultado, acarreo = error
-        jr sc_ret
-sc_bad: ld hl, (a_hl)
-        scf
-sc_ret: ld (a_hl), hl
-        sbc a, a               ; A = FFh con acarreo
-        and 1
-        ld c, a
-        ld hl, 2
-        add hl, sp             ; el F del usuario en la pila
-        ld a, (hl)
-        and 0FEh
-        or c
-        ld (hl), a
-        ld bc, (a_bc)
-        ld de, (a_de)
-        ld hl, (a_hl)
-        ld ix, (a_ix)
-        ld iy, (a_iy)
+        jr k_ret
+k_bad:  scf
+k_ret:  sbc a, a               ; A = FFh con acarreo
+        ld (R_C), a
         pop af                 ; P/V = IFF2 de la entrada
         ld a, 1
         ld (ctx_user), a
         ld a, CTRL_USR
-        jp pe, STUB_EI
-        jp STUB_DI
-
-; Un byte de la memoria del usuario: DE = su direccion -> A. Sus paginas 2 y 3
-; son las del nucleo; las 0 y 1 se ven poniendo su banco del slot 2 en la
-; ventana 1 del nucleo.
-uread:  ld a, d
-        cp 80h
-        jr c, ur_priv
-        ld a, (de)
-        ret
-ur_priv:
-        push hl
-        ld a, UBANK0
-        bit 6, d
-        jr z, ur_b
-        ld a, UBANK1
-ur_b:   out (0E9h), a
-        ld a, 0FBh
-        out (0FAh), a
-        ld a, d
-        and 3Fh
-        or 40h
-        ld h, a
-        ld l, e
-        ld a, (hl)
-        push af
-        ld a, 0FFh
-        out (0FAh), a
-        ld a, UBANK1
-        out (0E9h), a
-        pop af
-        pop hl
-        ret
-
-sc_table:
-        dw f_exit, f_putc, f_echo, f_null
-NFUNC   equ ($ - sc_table) / 2
+        jp pe, x_ei_s
+        jp x_di_s
 
 f_exit: ld sp, (ksp)           ; al nucleo, como si volviera del arranque
         jp finish
@@ -271,7 +175,7 @@ isr_wrap:
         ld a, 1
         ld (ctx_user), a
         ld a, CTRL_USR
-        jp STUB_EI             ; al usuario, a donde lo interrumpieron
+        jp X_INT               ; al usuario, a donde lo interrumpieron
 isr_sup:
         pop af
 orig_isr:
@@ -297,10 +201,6 @@ finish: di
         out (0E8h), a
         ld a, (sv_e9)
         out (0E9h), a
-        ld hl, sv_30
-        ld de, 0030h
-        ld bc, 3
-        ldir
         ld hl, orig_isr
         ld de, 0038h
         ld bc, 3
@@ -364,38 +264,53 @@ pd2:    inc a
         ret
 
 ; ---------------------------------------------------------------- salida
-; Se copia a STUB (pagina compartida). Tras el OUT, la CPU ya lee con el mapa
-; del usuario: POP AF, EI/NOP y RET tienen que estar en las dos.
+; Se copia a STUB (pagina compartida). SYSCALL: tras el OUT (F2h), la CPU ya
+; lee con el mapa del supervisor (JP k_entry). Salida: tras el OUT (F0h), con
+; el del usuario (LD A,(R_C), RRA, EI/NOP, RET).
 stub_src:
-        out (0F0h), a          ; STUB_EI
+        ld (FN_TMP), a         ; SYSCALL
+        ld a, i                ; P/V = IFF2
+        di
+        push af
+        ld a, (FN_TMP)
+        out (0F2h), a          ; al supervisor
+        jp k_entry
+X_EI    equ STUB + ($ - stub_src)
+        out (0F0h), a          ; salida con EI
+        ld a, (R_C)
+        rra                    ; acarreo = error
+        ei
+        ret
+X_DI    equ STUB + ($ - stub_src)
+        out (0F0h), a          ; salida sin EI
+        ld a, (R_C)
+        rra
+        nop
+        ret
+X_INT   equ STUB + ($ - stub_src)
+        out (0F0h), a          ; vuelta de una interrupcion: AF del usuario
         pop af
         ei
         ret
-        out (0F0h), a          ; STUB_DI
-        pop af
-        nop
-        ret
 stub_end:
+x_ei_s  equ X_EI
+x_di_s  equ X_DI
 
 ; ---------------------------------------------------------------- usuario
 ; Corre en su 0100h (pagina privada): sin direcciones absolutas propias.
 uimg:
         ld e, 'U'
-        rst 30h
-        db 0FFh
-        dw 1
+        ld a, 1
+        call SYSCALL
         ld e, ':'
-        rst 30h
-        db 0FFh
-        dw 1
+        ld a, 1
+        call SYSCALL
         ld e, ' '
-        rst 30h
-        db 0FFh
-        dw 1
+        ld a, 1
+        call SYSCALL
         ld hl, 1233h           ; eco: 1234h
-        rst 30h
-        db 0FFh
-        dw 2
+        ld a, 2
+        call SYSCALL
         ld e, 'E'
         ld a, h
         cp 12h
@@ -404,41 +319,28 @@ uimg:
         cp 34h
         jr z, u_e2
 u_e1:   ld e, 'e'
-u_e2:   rst 30h
-        db 0FFh
-        dw 1
-        rst 30h                ; slot 01h: no es del supervisor: acarreo
-        db 01h
-        dw 0
-        ld e, 'S'
-        jr c, u_s
-        ld e, 's'
-u_s:    rst 30h
-        db 0FFh
-        dw 1
-        rst 30h                ; funcion que no existe: acarreo
-        db 0FFh
-        dw 0777h
+u_e2:   ld a, 1
+        call SYSCALL
+        ld a, 77h              ; funcion que no existe: acarreo
+        call SYSCALL
         ld e, 'F'
         jr c, u_f
         ld e, 'f'
-u_f:    rst 30h
-        db 0FFh
-        dw 1
+u_f:    ld a, 1
+        call SYSCALL
         ld a, 5Ah              ; su pagina privada
         ld (4000h), a
         ld a, 0A5h             ; la compartida
         ld (SHARED), a
         ld bc, 1000            ; 1000 llamadas nulas
-uloop:  rst 30h
-        db 0FFh
-        dw 3
+uloop:  ld a, 3
+        call SYSCALL
         dec bc
         ld a, b
         or c
         jr nz, uloop
 uend:   ld d, 10               ; ~1 s solo en modo usuario: si se pulsan
-u_w1:   ld bc, 0                ; teclas, llegan interrupciones (el LX-DOS solo
+u_w1:   ld bc, 0               ; teclas, llegan interrupciones (el LX-DOS solo
                                ; deja la del teclado) y tienen que volver aqui
 u_w2:   dec bc
         ld a, b
@@ -447,19 +349,25 @@ u_w2:   dec bc
         dec d
         jr nz, u_w1
         ld e, '.'
-        rst 30h
-        db 0FFh
-        dw 1
-        rst 30h                ; terminar
-        db 0FFh
-        dw 0
+        ld a, 1
+        call SYSCALL
+        xor a                  ; terminar
+        call SYSCALL
         jr $
 uimg_end:
 ULOOP   equ uloop - uimg + 100h
 UEND    equ uend - uimg + 100h
 
+; ---------------------------------------------------------------- tabla
+        ds (256 - ($ & 255)) & 255
+jtab:   jp f_exit              ; 0
+        jp f_putc              ; 1
+        jp f_echo              ; 2
+        jp f_null              ; 3
+NFUNC   equ ($ - jtab) / 3
+
 ; ---------------------------------------------------------------- datos
-m_banner: db "SYSTEST: RST 6 syscalls from user mode", 13, 10, "user> $"
+m_banner: db "SYSTEST: OUT (F2h),A syscalls from user mode", 13, 10, "user> $"
 m_calls:  db 13, 10, "syscalls served: $"
 m_irq:    db 13, 10, "interrupts taken in user mode: $"
 m_priv:   db 13, 10, "private user page: $"
@@ -470,15 +378,11 @@ ctx_user: db 0
 nsys:     dw 0
 nirq:     dw 0
 ksp:      dw 0
-retp:     dw 0
 a_hl:     dw 0
 a_de:     dw 0
 a_bc:     dw 0
 a_ix:     dw 0
 a_iy:     dw 0
-sc_slot:  db 0
-sc_id:    dw 0
-sv_30:    ds 3
 sv_e8:    db 0
 sv_e9:    db 0
 sv_fb:    db 0

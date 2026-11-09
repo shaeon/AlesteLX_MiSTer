@@ -52,7 +52,6 @@ namespace ControlRegister {
     constexpr uint8_t NATIVE_MODE        = 0b00000010; // Bit 1 (RTL actual): 1=nativo, 0=legacy
     constexpr uint8_t SUPERVISOR_MODE    = 0b00000001; // Bit 0 (RTL actual): escribir 0 = salir de supervisor
     constexpr uint8_t SUPERVISOR_HOOK    = 0b00000100; // Бит 2: 1=Включить аппаратный захват
-    constexpr uint8_t RST6_HOOK          = 0b00001000; // Bit 3 (provisional): trampa de RST 6 (0030h), solo nativo
     
     // Reserved bit
     constexpr uint8_t RESERVED_3         = 0b00001000; // Бит 3: Зарезервировано

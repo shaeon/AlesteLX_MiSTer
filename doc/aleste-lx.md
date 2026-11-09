@@ -169,36 +169,41 @@ Al acabar un programa que dejó el modo gráfico, el LX-DOS vuelve al texto.
 `TUNNEL.COM` (rectángulos, texto y paleta rotando) están en `lx/dos/test/gfx`
 y en `sd/LXDOS.DSK`, con cuatro imágenes de ejemplo.
 
-### Llamada al sistema: RST 6 (prototipo)
+### Llamada al sistema: OUT (F2h),A (decidido con hww tras dos prototipos)
 
-Acordado con hww en principio: la llamada al sistema es `RST 6`, y se quita
-la de puerto (`F2h`, `F2xxh` en legacy), que queda libre. En el M1 de 0030h
-en modo usuario, la MMU pasa a supervisor, igual que con las trampas de
-0038h/0066h. Se activa con el **bit 3 del registro de control (F0h)**, de
-forma **provisional** hasta que hww fije el bit y su polaridad: 1 = activa,
-0 tras el reset, así que el software actual no cambia. Solo actúa en modo
-nativo: en legacy, 0030h es de los programas (user restart del CPC, CALLF de
-MSX-DOS). El formato que se va a probar en el núcleo: `RST 30h`, `DB 0FFh`,
-`DW número_de_función` (el de un CALLF de MSX con el slot FFh reservado para
-el supervisor), con los argumentos en registros. Prueba de la MMU
-(`sim/unit/mmu_native`): 49/49.
+La llamada al sistema es **escribir en el puerto F2h** (`F2xxh` en legacy), el
+mecanismo original de la MMU de hww: la MMU entra al supervisor y la
+instrucción siguiente ya se lee con su mapa. El número de función va en A y los
+argumentos en registros (resultado en HL, error en el acarreo); el núcleo no
+lee nada de la memoria del usuario. Funciona aunque el usuario tenga los
+puertos bloqueados, y deja libre 0030h (CALLF de MSX, user restart del CPC).
 
-**Prototipo funcionando** (`lx/dos/test/sys/systest.asm`, `SYSTEST.COM` en
+Cómo se llega a ella: se probó antes `RST 6` (trampa en el M1 de 0030h) con
+el formato de un CALLF de MSX (`RST 30h` / `DB 0FFh` / `DW número`). Funcionaba,
+pero costaba **1511 ciclos por llamada nula**, casi todo en leer los 3 bytes
+de detrás del RST de la memoria privada del usuario. Con `OUT (F2h),A`:
+**413 ciclos** (≈ 23 µs a 18 MHz, 3,7 veces menos), contando el `LD A,n` y el
+`CALL`, guardar el estado de las interrupciones y el contador de llamadas de la
+prueba.
+
+**Prototipo** (`lx/dos/test/sys/systest.asm`, `SYSTEST.COM` en
 `sd/LXDOS.DSK`): un núcleo mínimo dentro del LX-DOS pone en marcha un
 programa en modo usuario (sus páginas 0-1 en el slot 2, privadas; las 2-3
-compartidas con el supervisor: pila, código de salida y drivers) y le atiende
-las llamadas `RST 30h` / `DB 0FFh` / `DW número`: lee los 3 bytes de detrás
-del RST en la memoria del usuario, despacha por una tabla y vuelve detrás de
-ellos, con el resultado en HL y el error en el acarreo; un slot distinto de
-FFh o una función que no existe dan error. Las interrupciones que llegan en
-modo usuario entran por la trampa de 0038h, pasan por la rutina del LX-DOS y
-vuelven al usuario. Resultado, igual en el core (simulación) y en el
-emulador: 1011 llamadas, 8 interrupciones en modo usuario (teclas pulsadas
-durante la espera), página privada y compartida bien. Coste en el emulador:
-1511 ciclos por llamada nula (≈ 84 µs a 18 MHz), sin optimizar: casi todo es
-leer los 3 bytes del usuario cambiando el mapa una vez por byte. Con los
-programas en marcha, el LX-DOS solo deja activa la línea del teclado en el
-PIC.
+compartidas con el supervisor). El programa llama con `LD A,función` /
+`CALL SYSCALL`; `SYSCALL` es un trampolín en la página compartida: guarda
+IFF, desactiva las interrupciones y hace `OUT (F2h),A`; la instrucción
+siguiente (`JP` al núcleo) se lee ya con el mapa del supervisor, pero al ser
+la página compartida es el mismo código. La vuelta (`OUT (F0h),A` con el bit 0
+a 0, que sale en el M1 siguiente, y `RET`) también está en la página
+compartida. Las interrupciones en modo usuario entran por la trampa de 0038h,
+pasan por la rutina del LX-DOS y vuelven al usuario.
+
+Resultado, igual en el core (simulación) y en el emulador: 1009 llamadas
+atendidas, 8 interrupciones en modo
+usuario (teclas pulsadas durante la espera), página privada y compartida
+bien. Con los programas en marcha, el LX-DOS solo deja activa la línea del
+teclado en el PIC. Pendiente: la variante legacy (`F2xxh`) desde un programa
+del CPC.
 
 ## LX-DOS
 

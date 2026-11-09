@@ -395,38 +395,22 @@ void test_default_state(MMUNativeTestUtils& utils) {
     utils.assert_equal(utils.get_legacy_mode(), 0, "Default should not be legacy mode");
 }
 
-// La llamada al sistema es RST 6: trampa en el M1 de 0030h en modo usuario,
-// con el bit 3 del control (provisional) y en modo nativo. El puerto F2h ya no
-// entra al supervisor.
-void test_rst6_syscall(MMUNativeTestUtils& utils) {
-    std::cout << "\n=== TESTING RST 6 SYSCALL ===" << std::endl;
-    auto to_user = [&](uint8_t ctrl) {
-        utils.mmu_write_reg(MMURegisterAddress::CONTROL, ctrl);   // bit 0 = 0: salir
-        utils.simulate_z80_m1_cycle(0x0100);                     // sale en el siguiente M1
-    };
-    to_user(ControlRegister::NATIVE_MODE);
-    utils.assert_equal(utils.get_supervisor_mode(), 0, "User mode before RST 6 tests");
-    utils.simulate_z80_m1_cycle(0x0030);
-    utils.assert_equal(utils.get_supervisor_mode(), 0, "RST 6 without the hook bit stays in user mode");
-
-    utils.mmu_write_reg(MMURegisterAddress::CONTROL, ControlRegister::NATIVE_MODE | ControlRegister::RST6_HOOK);
-    utils.simulate_z80_m1_cycle(0x0100);
-    utils.assert_equal(utils.get_supervisor_mode(), 0, "Still user mode after enabling the hook");
-    utils.simulate_z80_m1_cycle(0x0030);
-    utils.assert_equal(utils.get_supervisor_mode(), 1, "RST 6 (M1 at 0030h) enters supervisor mode");
-
-    to_user(ControlRegister::NATIVE_MODE | ControlRegister::RST6_HOOK);
-    utils.assert_equal(utils.get_supervisor_mode(), 0, "Back to user mode");
+void test_syscall_mechanism(MMUNativeTestUtils& utils) {
+    std::cout << "\n=== TESTING SYSCALL MECHANISM ===" << std::endl;
+    utils.log_registers();
+    
+    // Запись через порт D4 (SysCall)
     utils.mmu_write_reg(MMURegisterAddress::SYSCALL, 0x55);
-    utils.simulate_z80_m1_cycle(0x0102);
-    utils.assert_equal(utils.get_supervisor_mode(), 0, "Port F2h no longer enters supervisor mode");
-    utils.assert_syscall_trig_seen(false, "No port syscall trigger");
+    utils.log_registers();
 
-    // al supervisor por la trampa, para que las pruebas siguientes empiecen igual
-    utils.simulate_z80_m1_cycle(0x0030);
-    utils.assert_equal(utils.get_supervisor_mode(), 1, "RST 6 again: supervisor");
-    utils.mmu_write_reg(MMURegisterAddress::CONTROL, 0x13);
-    utils.simulate_z80_m1_cycle(0x0100);
+    utils.assert_equal(utils.get_syscall_data(), 0x55, "SysCall data should be captured");
+    utils.assert_syscall_trig_seen(true, "SysCall should activate trig");
+    
+    // Вторая запись
+    utils.mmu_write_reg(MMURegisterAddress::SYSCALL, 0xAA);
+    utils.log_registers();
+    utils.assert_equal(utils.get_syscall_data(), 0xAA, "Second SysCall should update data");
+    utils.assert_syscall_trig_seen(true, "Second SysCall should activate trig");
 }
 
 void test_control_register(MMUNativeTestUtils& utils) {
@@ -733,7 +717,7 @@ int main(int argc, char** argv) {
     
     test_default_state(utils);
     test_control_register(utils);
-    test_rst6_syscall(utils);
+    test_syscall_mechanism(utils);
     test_register_access(utils);
     test_slot_selection(utils);
     test_address_translation(utils);
