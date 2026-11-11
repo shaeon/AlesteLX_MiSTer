@@ -277,6 +277,21 @@ module tb_lx;
                      dut.z80_we ? dut.z80_dat_out : dut.z80_dat_in, dut.z80_err ? "  (error de bus)" : "");
         end
 
+    // Traza de instrucciones (+pc_t0 / +pc_t1 en us, +npc = maximo): cada M1
+    // con su direccion logica y el modo (S supervisor, U usuario)
+    int pc_t0 = -1, pc_t1 = -1, n_pc = 0, max_pc = 4000;
+    logic m1_prev = 1'b1;
+    initial begin void'($value$plusargs("pc_t0=%d", pc_t0)); void'($value$plusargs("pc_t1=%d", pc_t1));
+                  void'($value$plusargs("npc=%d", max_pc)); end
+    always @(posedge clk_bus) begin
+        m1_prev <= dut.z80_sys.z80_m1_n | dut.z80_sys.z80_mreq_n;
+        if (pc_t0 >= 0 && $realtime >= pc_t0 * 1000.0 && $realtime < pc_t1 * 1000.0 && n_pc < max_pc
+            && m1_prev && !(dut.z80_sys.z80_m1_n | dut.z80_sys.z80_mreq_n)) begin
+            n_pc++;
+            $display("   [%0.4f ms] M1 %04h %s", $realtime/1.0e6, dut.z80_sys.z80_a,
+                     dut.z80_sys.mmu_native_inst.supervisor_mode ? "S" : "U");
+        end
+    end
     // Estadistica de ciclos de 54 MHz (+stat_t0 / +stat_t1 en us)
     int st0 = -1, st1 = -1;
     longint c_tot = 0, c_wait = 0, c_acc = 0, c_cke = 0, c_mmu = 0;

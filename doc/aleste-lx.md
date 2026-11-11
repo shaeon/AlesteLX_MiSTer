@@ -245,11 +245,16 @@ Resultados:
   operando del usuario, igual en el core y en el emulador. (`MAPTEST.COM` no
   podía verlo: usaba el mismo código de operación en los dos mapas.)
 
-**Problema abierto**: con el VBlank activo, `SYSTEST` se cuelga en el core
-(no en el emulador) tras la primera llamada, y la memoria del núcleo aparece
-machacada como por una pila desbocada. El VBlank solo, con un programa en
-supervisor (`VBTEST.COM`), no cuelga el core; falla al juntarlo con el modo
-usuario. Otra diferencia entre core y emulador por aclarar: en el emulador el
+**Problema abierto**: con el VBlank activo, en el core (no en el emulador)
+la consola deja de dibujar después de que llegue una interrupción del VBlank
+mientras imprime. La llamada al sistema sigue funcionando: la traza de
+instrucciones (`+pc_t0`/`+pc_t1` en el banco de pruebas) muestra el bucle de
+llamadas nulas ejecutándose con normalidad, y el PIC atiende el VBlank cada
+cuadro; pero las llamadas a la BDOS que imprimen vuelven sin dibujar, y la
+memoria del núcleo acaba machacada. Apunta al camino consola/BDOS con
+interrupciones (el LX-DOS normalmente tiene el VBlank tapado mientras corre un
+programa), no al mecanismo de la llamada. El VBlank solo, con un programa en
+supervisor (`VBTEST.COM`), no lo provoca en lo que se ha simulado. Otra diferencia entre core y emulador por aclarar: en el emulador el
 temporizador del sistema pide interrupción por la línea 6 del PIC; en el core
 la línea 6 está a 0 y la 4 lleva la interrupción del Gate Array.
 Pendiente también: la variante legacy (`F2xxh`) desde un programa del CPC.
