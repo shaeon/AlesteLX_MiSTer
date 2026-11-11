@@ -485,7 +485,7 @@ module tb_lx;
     end
 
     initial begin
-        #4000ms;
+        #60000ms;                   // tope de seguridad; +ms= decide el final
         $display("TIMEOUT de simulacion");
         $finish;
     end

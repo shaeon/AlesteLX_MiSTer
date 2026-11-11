@@ -181,29 +181,49 @@ puertos bloqueados, y deja libre 0030h (CALLF de MSX, user restart del CPC).
 Cómo se llega a ella: se probó antes `RST 6` (trampa en el M1 de 0030h) con
 el formato de un CALLF de MSX (`RST 30h` / `DB 0FFh` / `DW número`). Funcionaba,
 pero costaba **1511 ciclos por llamada nula**, casi todo en leer los 3 bytes
-de detrás del RST de la memoria privada del usuario. Con `OUT (F2h),A`:
-**413 ciclos** (≈ 23 µs a 18 MHz, 3,7 veces menos), contando el `LD A,n` y el
-`CALL`, guardar el estado de las interrupciones y el contador de llamadas de la
-prueba.
+de detrás del RST de la memoria privada del usuario. Con `OUT (F2h),A`: 413
+ciclos con un trampolín en una página compartida, y **380** con el esquema
+acordado (abajo), contando el `LD A,n`, el `CALL` y el contador de llamadas de
+la prueba.
 
-**Prototipo** (`lx/dos/test/sys/systest.asm`, `SYSTEST.COM` en
-`sd/LXDOS.DSK`): un núcleo mínimo dentro del LX-DOS pone en marcha un
-programa en modo usuario (sus páginas 0-1 en el slot 2, privadas; las 2-3
-compartidas con el supervisor). El programa llama con `LD A,función` /
-`CALL SYSCALL`; `SYSCALL` es un trampolín en la página compartida: guarda
-IFF, desactiva las interrupciones y hace `OUT (F2h),A`; la instrucción
-siguiente (`JP` al núcleo) se lee ya con el mapa del supervisor, pero al ser
-la página compartida es el mismo código. La vuelta (`OUT (F0h),A` con el bit 0
-a 0, que sale en el M1 siguiente, y `RET`) también está en la página
-compartida. Las interrupciones en modo usuario entran por la trampa de 0038h,
-pasan por la rutina del LX-DOS y vuelven al usuario.
+**Prototipo con el esquema acordado** (`lx/dos/test/sys/systest.asm`,
+`SYSTEST.COM` en `sd/LXDOS.DSK`). El wrapper y la salida están en la misma
+dirección de una página que es distinta en los dos mapas (la 1, 7F00h):
 
-Resultado, igual en el core (simulación) y en el emulador: 1009 llamadas
-atendidas, 8 interrupciones en modo
-usuario (teclas pulsadas durante la espera), página privada y compartida
-bien. Con los programas en marcha, el LX-DOS solo deja activa la línea del
-teclado en el PIC. Pendiente: la variante legacy (`F2xxh`) desde un programa
-del CPC.
+| Dirección | Mapa del usuario | Mapa del supervisor |
+|---|---|---|
+| 7F00h | `OUT (F2h),A` (entra) | `OUT (F0h),A` (salida) |
+| 7F02h | `EI` | prólogo del núcleo |
+| 7F03h | `RET` | … |
+
+El programa hace `CALL 7F00h`; tras el `OUT (F2h),A`, 7F02h se lee ya del
+mapa del supervisor. El núcleo guarda el SP del usuario en 4FFEh y usa su
+propia pila debajo, en W1 (como en el diseño de hww). Al terminar restaura el
+SP y salta a 7F00h, donde en su mapa está `OUT (F0h),A`: la MMU vuelve al
+usuario **en el M1 siguiente** (no en el `RET`), así que `EI` y `RET` ya se
+leen del mapa del usuario y el `RET` del wrapper es la vuelta. `OUT` no toca
+los indicadores: el resultado llega en HL y en el acarreo; A se pierde.
+
+Dos cosas que enseña:
+
+- **Interrupciones en modo usuario**: entran por la trampa de 0038h; para
+  volver hay que restaurar AF entero, y esa instrucción (`POP AF`) se lee ya
+  del mapa del usuario, así que la pila del usuario tiene que estar en una
+  página que vean los dos mapas (o el núcleo tiene que escribir en ella).
+- **La carrera tras `OUT (F2h),A`**: si llega una interrupción antes de que el
+  núcleo cambie de pila, la CPU guarda la vuelta con el SP del usuario pero ya
+  con el mapa del supervisor, y la rutina no sabe que estaba en una llamada.
+  Sin `DI` en la entrada, la rutina lo detecta por la dirección de vuelta (el
+  prólogo) y vuelve al núcleo. La salida sí desactiva las interrupciones unas
+  pocas instrucciones (de ahí el `EI` del wrapper). Un bit de estado de
+  hardware («entrada desde el usuario», la recomendación 19 de hww) lo
+  resolvería sin trucos.
+
+Resultado en el emulador, con el VBlank activo durante la prueba para que
+lleguen interrupciones a menudo: 20009 llamadas, 74 interrupciones en modo
+usuario, **2 carreras** detectadas y resueltas, páginas privada y compartida
+bien. **380 ciclos por llamada nula** (≈ 21 µs a 18 MHz; con `RST 6` eran
+1511). Pendiente: la variante legacy (`F2xxh`) desde un programa del CPC.
 
 ## LX-DOS
 
