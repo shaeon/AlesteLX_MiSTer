@@ -237,9 +237,9 @@ Resultados:
   bien. **380 ciclos por llamada nula** (≈ 21 µs a 18 MHz; con `RST 6` eran
   1511).
 - Emulador, con el VBlank activo para que lleguen interrupciones a menudo
-  (`VBLANK equ 1` en `systest.asm`): 20009 llamadas, 74 interrupciones en
-  modo usuario y **2 carreras** detectadas y resueltas sin `DI` en la
-  entrada.
+  (`VBLANK equ 1` en `systest.asm`): 20009 llamadas, 65 interrupciones en
+  modo usuario y **1 carrera** detectada y resuelta sin `DI` en la entrada
+  (el número varía según dónde caigan las interrupciones).
 - `MAPTEST2.COM` (`maptest2.asm`): de la primera instrucción tras
   `OUT (F0h),A`, el código de operación sale del mapa del supervisor y el
   operando del usuario, igual en el core y en el emulador. (`MAPTEST.COM` no
