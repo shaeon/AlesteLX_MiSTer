@@ -520,6 +520,44 @@ void test_exit_on_ret(MMUNativeTestUtils& utils) {
     utils.reset_pulse();                                    // estado limpio para las pruebas siguientes
 }
 
+// Bloqueo de interrupciones (bit 3 del control, propuesta de hww): lo ponen la
+// entrada por OUT (F2h),A y el armado de la salida; lo quitan el nucleo (bit 3
+// a 0) y la salida en el RET. Al pasar a legacy, no.
+void test_int_hold(MMUNativeTestUtils& utils) {
+    std::cout << "\n=== TESTING INTERRUPT HOLD (CONTROL BIT 3) ===" << std::endl;
+    auto top = utils.get_top();
+    auto hold_bit = [&]() -> uint8_t { return (utils.mmu_read_reg(MMURegisterAddress::CONTROL) >> 3) & 1; };
+    utils.reset_pulse();
+    utils.assert_equal(top->int_hold_o, 0, "After reset: no hold");
+    // al usuario
+    utils.mmu_write_reg(MMURegisterAddress::CONTROL, ControlRegister::NATIVE_MODE | ControlRegister::SUPERVISOR_HOOK);
+    utils.assert_equal(top->int_hold_o, 1, "Arming the exit sets the hold");
+    utils.exit_to_user();
+    utils.assert_equal(utils.get_supervisor_mode(), 0, "RET: user mode");
+    utils.assert_equal(top->int_hold_o, 0, "RET: the exit releases the hold");
+    // la llamada
+    utils.mmu_write_reg(MMURegisterAddress::SYSCALL, 0x03);
+    utils.assert_equal(utils.get_supervisor_mode(), 1, "OUT (F2h),A: supervisor");
+    utils.assert_equal(top->int_hold_o, 1, "OUT (F2h),A: hold set");
+    utils.assert_equal(hold_bit(), 1, "OUT (F2h),A: control bit 3 reads 1");
+    // el nucleo lo quita (bit 0 a 1: sigue en supervisor)
+    utils.mmu_write_reg(MMURegisterAddress::CONTROL, ControlRegister::NATIVE_MODE | ControlRegister::SUPERVISOR_HOOK | ControlRegister::SUPERVISOR_MODE);
+    utils.assert_equal(top->int_hold_o, 0, "Kernel writes bit 3 = 0: hold released");
+    utils.assert_equal(hold_bit(), 0, "Control bit 3 reads 0");
+    utils.assert_equal(utils.get_supervisor_mode(), 1, "Still in supervisor");
+    // y lo vuelve a poner al armar la salida
+    utils.mmu_write_reg(MMURegisterAddress::CONTROL, ControlRegister::NATIVE_MODE | ControlRegister::SUPERVISOR_HOOK);
+    utils.assert_equal(top->int_hold_o, 1, "Arming the exit: hold set again");
+    utils.exit_to_user();
+    utils.assert_equal(top->int_hold_o, 0, "RET: hold released, user mode");
+    utils.assert_equal(utils.get_supervisor_mode(), 0, "RET: user mode");
+    // al pasar a legacy, sin bloqueo
+    utils.simulate_z80_m1_fetch(0x0038);                    // trampa: al supervisor
+    utils.mmu_write_reg(MMURegisterAddress::CONTROL, 0x00);
+    utils.assert_equal(top->int_hold_o, 0, "Switch to legacy: no hold");
+    utils.reset_pulse();
+}
+
 void test_hardware_trap(MMUNativeTestUtils& utils) {
     std::cout << "\n=== TESTING HARDWARE TRAP ===" << std::endl;
     
@@ -802,6 +840,7 @@ int main(int argc, char** argv) {
     test_z80_io_protection(utils);
     test_supervisor_exit(utils);
     test_exit_on_ret(utils);
+    test_int_hold(utils);
     test_hardware_trap(utils);
     
     utils.print_test_results();

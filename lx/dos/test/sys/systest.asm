@@ -1,5 +1,5 @@
 ; systest.asm - SYSTEST.COM: la llamada al sistema del LX con la salida en el
-; RET (propuesta de hww)
+; RET y el bloqueo de interrupciones del bit 3 del control (propuestas de hww)
 ; Shaeon (Carlos Palmero), para el core AlesteLX_MiSTer y el emulador alestelx.
 ;
 ; Un nucleo minimo (este programa, en modo supervisor dentro del LX-DOS) pone
@@ -9,17 +9,18 @@
 ; tambien su pila.
 ;
 ; Entrada: el usuario hace CALL WRAP (7F00h, en su pagina 1):
-;   usuario    7F00h  DI
-;              7F01h  OUT (F2h),A     ; la MMU pasa al supervisor ya
-;   supervisor 7F03h  JP k_entry      ; la instruccion siguiente, de su mapa
-; El nucleo cambia a su pila (W1, el SP del usuario en 4FFEh) y reactiva las
-; interrupciones durante la llamada.
+;   usuario    7F00h  OUT (F2h),A     ; la MMU pasa al supervisor ya y bloquea
+;                                     ; las interrupciones (bit 3 del control)
+;   supervisor 7F02h  JP k_entry      ; la instruccion siguiente, de su mapa
+; El nucleo cambia a su pila (W1, el SP del usuario en 4FFEh) y quita el
+; bloqueo escribiendo el control con el bit 3 a 0. No toca las interrupciones
+; del Z80: el estado que tenia el usuario se conserva.
 ;
-; Salida (propuesta de hww): DI; OUT (F0h),A con el bit 0 a 0 ARMA la salida;
-; el nucleo restaura AF y el SP del usuario todavia en supervisor; EI; RET: la
-; MMU sale en el M1 que lee ese C9 (leido con el mapa del supervisor) y el RET
-; toma la vuelta de la pila del usuario con el mapa del usuario. Entre el OUT
-; y el RET, las interrupciones desactivadas.
+; Salida: OUT (F0h),A con el bit 0 a 0 ARMA la salida y bloquea las
+; interrupciones; el nucleo restaura AF y el SP del usuario todavia en
+; supervisor; RET: la MMU sale (y quita el bloqueo) en el M1 que lee ese C9
+; (leido con el mapa del supervisor) y el RET toma la vuelta de la pila del
+; usuario con el mapa del usuario. Ni DI ni EI.
 ;
 ; Interrupciones en modo usuario: entran por la trampa de 0038h (el mismo JP en
 ; las dos paginas 0: el codigo de operacion de ese M1 sale del mapa del
@@ -40,6 +41,7 @@
 ; pasmo systest.asm SYSTEST.COM systest.sym
 BDOS     equ 5
 CTRL_USR equ 06h               ; nativo, trampas 0038h/0066h; bit 0 = 0: salir
+CTRL_SUP equ 07h               ; lo mismo en supervisor; bit 3 = 0: sin bloqueo
 UBANK0   equ 40h               ; bancos del usuario en el slot 2
 UBANK1   equ 41h
 NCALLS   equ 20000             ; llamadas nulas del bucle (para medir)
@@ -95,12 +97,10 @@ start:  ld de, m_banner
         out (0E9h), a
         xor a
         ld (4000h), a
-        ld a, 0F3h             ; 7F00h: DI
+        ld a, 0D3h             ; 7F00h: OUT (F2h),A
         ld (WRAP), a
-        ld a, 0D3h             ; 7F01h: OUT (F2h),A
-        ld (WRAP + 1), a
         ld a, 0F2h
-        ld (WRAP + 2), a
+        ld (WRAP + 1), a
         ld hl, 0100h           ; en su pila, la vuelta al arrancar: 0100h
         ld (USTACK - 2), hl
         ld a, 0FFh             ; el nucleo, otra vez todo en el slot 3
@@ -108,10 +108,10 @@ start:  ld de, m_banner
         xor a
         ld (4000h), a          ; el 4000h del nucleo (TPA) a 0
         ld (SHARED), a
-        ld a, 0C3h             ; su 7F03h: JP k_entry
-        ld (WRAP + 3), a
+        ld a, 0C3h             ; su 7F02h: JP k_entry
+        ld (WRAP + 2), a
         ld hl, k_entry
-        ld (WRAP + 4), hl
+        ld (WRAP + 3), hl
         ld a, 0FAh             ; usuario: paginas 0-1 slot 2, 2-3 slot 3
         out (0FBh), a
         ; ---- interrupciones durante la prueba
@@ -129,24 +129,25 @@ start:  ld de, m_banner
         out (0F1h), a
         ; ---- al usuario: RET de su pila (0100h)
         ld (ksp), sp
+        ld a, CTRL_USR
+        out (0F0h), a          ; arma la salida (y bloquea)
         ld a, 1
         ld (ctx_user), a
-        ld a, CTRL_USR
-        out (0F0h), a          ; arma la salida
         ld sp, USTACK - 2
-        ei
+        ei                     ; el usuario, con interrupciones
         ret                    ; sale aqui: la vuelta, de la pila del usuario
 
 ; ---------------------------------------------------------------- llamadas
-; Desde WRAP (DI; OUT (F2h),A) y el JP de 7F03h: supervisor, interrupciones
-; desactivadas; A = funcion; la vuelta, en la pila del usuario.
+; Desde WRAP (OUT (F2h),A) y el JP de 7F02h: supervisor, con el bloqueo;
+; A = funcion; la vuelta, en la pila del usuario.
 k_entry:
         ld (fn_s), a
         xor a
         ld (ctx_user), a
         ld (KSP_SAVE), sp      ; pila propia (W1)
         ld sp, KSP_SAVE
-        ei                     ; interrupciones durante la llamada
+        ld a, CTRL_SUP         ; quita el bloqueo: interrupciones durante la
+        out (0F0h), a          ; llamada (si el usuario las tenia)
         ld (a_hl), hl
         ld hl, (nsys)
         inc hl
@@ -165,16 +166,15 @@ hcall:  call 0                 ; HL, A y F de vuelta (acarreo = error)
         jr k_ret
 k_bad:  ld hl, (a_hl)
         scf
-k_ret:  di
-        push af                ; el resultado, en la pila del nucleo
+k_ret:  push af                ; el resultado, en la pila del nucleo
+        ld a, CTRL_USR
+        out (0F0h), a          ; arma la salida y bloquea
         ld a, 1
         ld (ctx_user), a
-        ld a, CTRL_USR
-        out (0F0h), a          ; arma la salida
         pop af                 ; todavia en supervisor
         ld sp, (KSP_SAVE)
-        ei                     ; las interrupciones, tras el RET
-        ret                    ; sale aqui: la vuelta, de la pila del usuario
+        ret                    ; sale aqui (y quita el bloqueo): la vuelta, de
+                               ; la pila del usuario
 
 f_exit: ld sp, (ksp)           ; al nucleo, como si volviera del arranque
         jp finish
@@ -210,16 +210,14 @@ isr_wrap:
         ld (nirq), hl
         pop hl
         pop af
-        call orig_isr
-        di
+        call orig_isr          ; acaba en EI; RETI
         push af
+        ld a, CTRL_USR
+        out (0F0h), a          ; arma la salida y bloquea
         ld a, 1
         ld (ctx_user), a
-        ld a, CTRL_USR
-        out (0F0h), a          ; arma la salida
         pop af
         ld sp, (isr_usp)
-        ei
         ret                    ; al usuario, a donde lo interrumpieron
 isr_k:  ex af, af'             ; desde el nucleo: con su pila
 orig_isr:
@@ -383,7 +381,7 @@ jtab:   jp f_exit              ; 0
 NFUNC   equ ($ - jtab) / 3
 
 ; ---------------------------------------------------------------- datos
-m_banner: db "SYSTEST: OUT (F2h),A syscalls, exit on RET", 13, 10, "user> $"
+m_banner: db "SYSTEST: OUT (F2h),A syscalls, exit on RET, interrupt hold", 13, 10, "user> $"
 m_calls:  db 13, 10, "syscalls served: $"
 m_irq:    db 13, 10, "interrupts taken in user mode: $"
 m_priv:   db 13, 10, "private user page: $"

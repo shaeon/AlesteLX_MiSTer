@@ -29,6 +29,7 @@ module mmu_native (
     // Operation Modes and Legacy MMU Interface
     // -------------------------------------------------------------------------
     output logic        native_mode_o,
+    output logic        int_hold_o,               // bloqueo de interrupciones (bit 3 del control)
 
     // -------------------------------------------------------------------------
     // Z80 Bus Interface
@@ -206,11 +207,18 @@ module mmu_native (
     wire trap_condition = m1_detected & reg_ctrl_trap_enabled & (cpu_a == 16'h0038 || cpu_a == 16'h0066);
     
     logic supervisor_exit_pending;
+    // Bloqueo de interrupciones (bit 3 del control, propuesta de hww): tapa la
+    // peticion de interrupcion a la CPU (sigue pendiente en el PIC) durante las
+    // secciones criticas. Lo pone OUT (F2h),A al entrar (el nucleo lo quita
+    // escribiendo el control con el bit 3 a 0, una vez cambiada la pila) y el
+    // armado de la salida (OUT (F0h),A con el bit 0 a 0); lo quita la salida.
+    logic int_hold;
     
     always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             supervisor_mode_reg <= 1'b1;
             supervisor_exit_pending <= 1'b0;
+            int_hold <= 1'b0;
         end else begin
             
             if (clke) begin
@@ -218,12 +226,14 @@ module mmu_native (
                 if (~supervisor_mode && (trap_condition || is_syscall_trigger)) begin
                     supervisor_mode_reg     <= 1'b1;
                     supervisor_exit_pending <= 1'b0;
+                    if (is_syscall_trigger) int_hold <= 1'b1;   // la llamada: bloqueo
                 end
                 // Al pasar a legacy (bit 1 a 0, el 520EX), como antes: sale en
                 // el M1 siguiente
                 else if (supervisor_exit_pending && m1_detected && !reg_ctrl_native_mode) begin
                     supervisor_mode_reg     <= 1'b0;
                     supervisor_exit_pending <= 1'b0;
+                    int_hold                <= 1'b0;
                 end
             end
 
@@ -231,19 +241,23 @@ module mmu_native (
             // el bit 0 a 0 solo la arma; sale cuando un M1 lee un C9 (RET). Ese
             // codigo de operacion ya se ha leido con el mapa del supervisor, y
             // las lecturas de la pila del RET (la vuelta) ya se hacen con el del
-            // usuario. Entre el OUT y el RET hay que tener las interrupciones
-            // desactivadas (un RET de una rutina de interrupcion dispararia la
-            // salida).
+            // usuario. Entre el OUT y el RET, el bloqueo de interrupciones
+            // impide que un RET de una rutina de interrupcion dispare la salida.
             if (supervisor_mode_reg && supervisor_exit_pending && m1_detected &&
                 m_wb_ack_i && m_wb_dat_i == 8'hC9) begin
                 supervisor_mode_reg     <= 1'b0;
                 supervisor_exit_pending <= 1'b0;
+                int_hold                <= 1'b0;                // la salida quita el bloqueo
             end
 
             // Запрос на выход (из порта D7)
             if (cpu_write_stb) begin
                 if (cpu_address_reg == CONTROL_REG_ADDR[4:0] && !cpu_write_data_reg[0]) begin
                     supervisor_exit_pending <= 1'b1;
+                    int_hold <= cpu_write_data_reg[1];       // armar la salida: bloqueo (no al pasar a legacy)
+                end
+                else if (cpu_address_reg == CONTROL_REG_ADDR[4:0]) begin
+                    int_hold <= cpu_write_data_reg[3];       // el nucleo lo quita con el bit 3 a 0
                 end
             end
         end
@@ -330,7 +344,7 @@ module mmu_native (
             CLOCK_CTRL_ADDR[4:0]:    cpu_read_data_reg_mux = reg_clock;
             MMIO_PAGE_ADDR[4:0]:     cpu_read_data_reg_mux = reg_mmio_page;
             SYSCALL_ADDR[4:0]:       cpu_read_data_reg_mux = reg_syscall_function;
-            CONTROL_REG_ADDR[4:0]:   cpu_read_data_reg_mux = reg_control;
+            CONTROL_REG_ADDR[4:0]:   cpu_read_data_reg_mux = {reg_control[7:4], int_hold, reg_control[2:0]};
 
             // Слотовые регистры
             SLOT_SUPER_ADDR[4:0]:    cpu_read_data_reg_mux = reg_super_slot;
@@ -435,6 +449,7 @@ module mmu_native (
     assign debug_syscall_trigger_o  = is_syscall_trigger;
     // registers
     assign debug_reg_control_o      = reg_control;
+    assign int_hold_o               = int_hold;
     assign debug_reg_mmio_page_o    = reg_mmio_page;
     assign debug_reg_super_slot_o   = reg_super_slot;
     assign debug_reg_user_slot_o    = reg_user_slot;

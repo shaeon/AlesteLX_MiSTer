@@ -181,7 +181,10 @@ module z80_system (
 
     // CPU управления через отладчик ИЛИ внешние сигналы
     assign z80_reset_n = ~(res_i || dbg_cpu_reset);  // Отладчик может сбросить
-    assign z80_int_n = ~int_req_i;
+    // El bloqueo de interrupciones de la MMU (bit 3 del control) tapa la
+    // peticion; sigue pendiente en el PIC y llega al quitarlo
+    logic mmu_int_hold;
+    assign z80_int_n = ~(int_req_i & ~mmu_int_hold);
     assign int_ack_o = ~z80_m1_n & ~z80_iorq_n;                   // Только внешние
     assign z80_nmi_n = ~(nmi_req_i || dbg_cpu_nmi);  // Отладчик может сгенерировать NMI
     assign z80_busrq_n = '1; // Отладчик может запросить шину
@@ -372,6 +375,7 @@ module z80_system (
         .clke(z80_cke),
         .reset(~z80_reset_n),
         .native_mode_o(native_mode),
+        .int_hold_o(mmu_int_hold),
 
         .cpu_a(z80_a),
         .cpu_mreq_n(z80_mreq_n),
