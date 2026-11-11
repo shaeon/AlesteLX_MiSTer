@@ -219,11 +219,28 @@ Dos cosas que enseña:
   hardware («entrada desde el usuario», la recomendación 19 de hww) lo
   resolvería sin trucos.
 
-Resultado en el emulador, con el VBlank activo durante la prueba para que
-lleguen interrupciones a menudo: 20009 llamadas, 74 interrupciones en modo
-usuario, **2 carreras** detectadas y resueltas, páginas privada y compartida
-bien. **380 ciclos por llamada nula** (≈ 21 µs a 18 MHz; con `RST 6` eran
-1511). Pendiente: la variante legacy (`F2xxh`) desde un programa del CPC.
+Resultados:
+
+- Core (simulación) y emulador, con las interrupciones del teclado: 20009
+  llamadas, 8 interrupciones en modo usuario, páginas privada y compartida
+  bien. **380 ciclos por llamada nula** (≈ 21 µs a 18 MHz; con `RST 6` eran
+  1511).
+- Emulador, con el VBlank activo para que lleguen interrupciones a menudo
+  (`VBLANK equ 1` en `systest.asm`): 20009 llamadas, 74 interrupciones en
+  modo usuario y **2 carreras** detectadas y resueltas sin `DI` en la
+  entrada.
+- `MAPTEST.COM` (`maptest.asm`): las instrucciones siguientes a
+  `OUT (F0h),A` salen del mapa del usuario desde la primera, igual en el
+  core y en el emulador.
+
+**Problema abierto**: con el VBlank activo, `SYSTEST` se cuelga en el core
+(no en el emulador) tras la primera llamada, y la memoria del núcleo aparece
+machacada como por una pila desbocada. El VBlank solo, con un programa en
+supervisor (`VBTEST.COM`), no cuelga el core; falla al juntarlo con el modo
+usuario. Otra diferencia entre core y emulador por aclarar: en el emulador el
+temporizador del sistema pide interrupción por la línea 6 del PIC; en el core
+la línea 6 está a 0 y la 4 lleva la interrupción del Gate Array.
+Pendiente también: la variante legacy (`F2xxh`) desde un programa del CPC.
 
 ## LX-DOS
 

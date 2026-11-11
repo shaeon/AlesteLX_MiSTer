@@ -10,16 +10,24 @@
 ;
 ;   direccion  mapa del usuario     mapa del supervisor
 ;   7F00h      OUT (F2h),A          OUT (F0h),A      (salida)
-;   7F02h      EI                   prologo del nucleo (sin DI)
-;   7F03h      RET                  ...
+;   7F02h      NOP                  NOP              (byte de transicion)
+;   7F03h      EI                   prologo del nucleo (sin DI)
+;   7F04h      RET                  ...
 ;
-; El programa hace CALL 7F00h: tras el OUT (F2h),A, 7F02h se lee ya del mapa
+; Regla del hardware (mmu_native.sv): el cambio de modo en un M1 (la salida
+; pendiente tras OUT (F0h), o una trampa) se registra cuando la direccion de
+; ESE codigo de operacion ya ha salido: se lee todavia con el mapa anterior, y
+; sus operandos, la pila y lo siguiente, con el nuevo. Por eso 7F02h tiene la
+; misma instruccion de un byte en los dos mapas. (La entrada por OUT (F2h)
+; cambia en la propia escritura: 7F02h ya se lee del supervisor.)
+;
+; El programa hace CALL 7F00h: tras el OUT (F2h),A, 7F02h y lo siguiente son
 ; del supervisor (el nucleo). El nucleo guarda el SP del usuario en 4FFEh y usa
 ; su pila, debajo, en su pagina 1 (W1, como en el diseno de hww). Al terminar
-; restaura el SP y salta a 7F00h, donde en su mapa esta OUT (F0h),A: la MMU
-; vuelve al usuario en el M1 SIGUIENTE, asi que 7F02h (EI) y 7F03h (RET) ya se
-; leen del mapa del usuario: el RET del wrapper es la vuelta. OUT no toca los
-; indicadores: el acarreo llega al usuario.
+; restaura el SP y salta a 7F00h, donde en su mapa esta OUT (F0h),A: tras el
+; NOP de 7F02h, 7F03h (EI) y 7F04h (RET) ya se leen del mapa del usuario: el
+; RET del wrapper es la vuelta. OUT no toca los indicadores: el acarreo llega
+; al usuario.
 ;
 ; Interrupciones en modo usuario: entran por la trampa de 0038h. Para volver
 ; hay que restaurar AF entero, y la instruccion que lo hace (POP AF) se lee ya
@@ -50,6 +58,7 @@ UBANK0   equ 40h               ; bancos del usuario en el slot 2
 UBANK1   equ 41h
 STUB     equ 0A000h            ; en la pagina compartida: vuelta de interrupciones
 NCALLS   equ 20000             ; llamadas nulas del bucle (para medir)
+VBLANK   equ 0                 ; 1 = activar el VBlank durante la prueba (estres de la carrera; en el core aun se cuelga)
 WRAP     equ 7F00h             ; pagina 1: wrapper (usuario) / salida (supervisor)
 KSP_SAVE equ 4FFEh             ; SP del usuario; debajo, la pila del nucleo (W1)
 USTACK   equ 0A800h
@@ -127,7 +136,9 @@ start:  ld de, m_banner
         out (0F1h), a
         in a, (00h)
         ld (sv_mask), a
+        if VBLANK
         or 04h
+        endif
         out (00h), a
         ld a, (sv_page)
         out (0F1h), a
@@ -335,14 +346,16 @@ X_INT   equ STUB + ($ - stub_src)
 stub_end:
 
 ; WRAP del usuario (en su pagina 1)
-uwrap:  out (0F2h), a          ; 7F00h: al supervisor; 7F02h ya es del nucleo
-        ei                     ; 7F02h: tras la salida, ya del mapa del usuario
-        ret                    ; 7F03h: la vuelta
+uwrap:  out (0F2h), a          ; 7F00h: al supervisor
+        nop                    ; 7F02h: byte de transicion, igual en los dos
+        ei                     ; 7F03h: tras la salida, ya del mapa del usuario
+        ret                    ; 7F04h: la vuelta
 uwrap_end:
 
 ; WRAP del supervisor (en su pagina 1): la salida y el prologo, sin DI
-swrap:  out (0F0h), a          ; 7F00h: salida (vuelve en el M1 siguiente)
-        ld (fn_s), a           ; 7F02h: prologo (ventana de la carrera)
+swrap:  out (0F0h), a          ; 7F00h: salida
+        nop                    ; 7F02h: byte de transicion, igual en los dos
+        ld (fn_s), a           ; 7F03h: prologo (ventana de la carrera)
         xor a
         ld (ctx_user), a
 p_end:  jp k_entry             ; ya con ctx_user = 0
