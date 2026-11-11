@@ -193,16 +193,27 @@ dirección de una página que es distinta en los dos mapas (la 1, 7F00h):
 | Dirección | Mapa del usuario | Mapa del supervisor |
 |---|---|---|
 | 7F00h | `OUT (F2h),A` (entra) | `OUT (F0h),A` (salida) |
-| 7F02h | `EI` | prólogo del núcleo |
-| 7F03h | `RET` | … |
+| 7F02h | `NOP` | `NOP` (byte de transición, igual en los dos) |
+| 7F03h | `EI` | prólogo del núcleo |
+| 7F04h | `RET` | … |
 
-El programa hace `CALL 7F00h`; tras el `OUT (F2h),A`, 7F02h se lee ya del
-mapa del supervisor. El núcleo guarda el SP del usuario en 4FFEh y usa su
-propia pila debajo, en W1 (como en el diseño de hww). Al terminar restaura el
-SP y salta a 7F00h, donde en su mapa está `OUT (F0h),A`: la MMU vuelve al
-usuario **en el M1 siguiente** (no en el `RET`), así que `EI` y `RET` ya se
-leen del mapa del usuario y el `RET` del wrapper es la vuelta. `OUT` no toca
-los indicadores: el resultado llega en HL y en el acarreo; A se pierde.
+**Cuándo cambia el mapa** (medido con `MAPTEST2.COM`, igual en el core y en
+el emulador): en una trampa (M1 de 0038h/0066h) o en la salida pendiente
+(primer M1 tras escribir F0h con el bit 0 a 0), el cambio se registra en el
+mismo M1, cuando la dirección física de ese código de operación ya ha salido:
+**el código de operación se lee con el mapa anterior; sus operandos, la pila y
+lo que sigue, con el nuevo**. La llamada `OUT (F2h),A`, en cambio, cambia en la
+propia escritura. Por eso el primer byte tras `OUT (F0h),A` tiene que ser el
+mismo en los dos mapas (el `NOP`), y en 0038h tiene que haber el mismo código
+de operación en los dos (aquí un `JP` igual en las dos páginas 0).
+
+El programa hace `CALL 7F00h`; tras el `OUT (F2h),A`, 7F02h y lo siguiente se
+leen del mapa del supervisor. El núcleo guarda el SP del usuario en 4FFEh y
+usa su propia pila debajo, en W1 (como en el diseño de hww). Al terminar
+restaura el SP y salta a 7F00h, donde en su mapa está `OUT (F0h),A`: tras el
+`NOP`, `EI` y `RET` ya se leen del mapa del usuario, y el `RET` del wrapper es
+la vuelta. `OUT` no toca los indicadores: el resultado llega en HL y en el
+acarreo; A se pierde.
 
 Dos cosas que enseña:
 
@@ -229,9 +240,10 @@ Resultados:
   (`VBLANK equ 1` en `systest.asm`): 20009 llamadas, 74 interrupciones en
   modo usuario y **2 carreras** detectadas y resueltas sin `DI` en la
   entrada.
-- `MAPTEST.COM` (`maptest.asm`): las instrucciones siguientes a
-  `OUT (F0h),A` salen del mapa del usuario desde la primera, igual en el
-  core y en el emulador.
+- `MAPTEST2.COM` (`maptest2.asm`): de la primera instrucción tras
+  `OUT (F0h),A`, el código de operación sale del mapa del supervisor y el
+  operando del usuario, igual en el core y en el emulador. (`MAPTEST.COM` no
+  podía verlo: usaba el mismo código de operación en los dos mapas.)
 
 **Problema abierto**: con el VBlank activo, `SYSTEST` se cuelga en el core
 (no en el emulador) tras la primera llamada, y la memoria del núcleo aparece
