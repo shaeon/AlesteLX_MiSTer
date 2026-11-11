@@ -27,11 +27,17 @@ reset del OSD vuelve al LX.
 
 ## La BIOS
 
-`lx/aleste-xi-bios` es el repositorio de hww sin tocar. `lx/build.sh` hace una
-copia, le aplica `lx/patches/` (arreglos a ficheros de hww) y copia encima
-`lx/overlay/` (código nuestro: drivers nuevos y `main.c`).
+La BIOS, el LX-DOS y sus herramientas viven en el repositorio de hww
+([aleste-xi-bios](https://github.com/hww/aleste-xi-bios)), que el core usa
+como submódulo (`lx/aleste-xi-bios`); su README explica qué hace cada parte.
+`lx/build.sh` llama a su `Makefile` (`make rom dos disk`) y deja `LX.ROM`,
+`bios_abi.asm`, `LXDOS.SYS` y `LXDOS.DSK` en `lx/build/`; con `--sd`, además
+en `sd/`. Rutas de este documento como `drivers/int` o `dos/` son de ese
+repositorio.
 
-Parches:
+Hasta noviembre de 2026 el core aplicaba aquí dos parches a los ficheros de
+hww y copiaba encima su código (`lx/overlay`); hoy son commits de su
+repositorio. Lo que arreglaban los parches:
 
 - `0001`: enlazado (las rutinas de la biblioteca quedaban en 0000h, encima del
   crt0, y DRV_DATA se salía de los 64 KB); puertos (CRTC en 20h/21h de la
@@ -136,7 +142,7 @@ El CRTC extendido ya lo tiene: R18 = 03h (8 bpp), R19 = byte alto de la
 VRAM, R20 = 07h (dirección lineal, paso de 4 bytes dos veces por carácter: 8
 bytes), R21 = 02h (8 bytes por carácter), R12/R13 = inicio, con R1 = 40,
 R6 = 25 y R9 = 7 como el modo de texto. Un byte por píxel, 64 000 bytes; la
-paleta da 256 colores de 4096. `lx/dos/test/gfx/gfx8test.asm`
+paleta da 256 colores de 4096. `dos/test/gfx/gfx8test.asm`
 (GFX8TEST.COM) lo prueba con la VRAM en C50000: en simulación, la imagen del
 core es idéntica píxel a píxel a la del emulador alestelx.
 
@@ -146,11 +152,11 @@ por carácter) y el `video_buffer` lee 4 bytes por petición y hace como mucho
 dos peticiones por carácter: hace falta rediseñar el búfer (y comprobar el
 ancho de banda de la SDRAM, unos 27 MB/s).
 
-Driver (`lx/dos/gfx8.c`, en el LX-DOS): poner y quitar el modo (guarda y
+Driver (`dos/gfx8.c`, en el LX-DOS): poner y quitar el modo (guarda y
 restaura el CRTC y los colores del texto), paleta, borrar, rectángulo
 relleno, copia de rectángulos opaca o con color transparente, scroll
 vertical y texto con la fuente de la BIOS; lo que mueve memoria lo hace la
-DMA. Imágenes `.LXI` (`tools/img2lx.py`): `LXI1`, ancho, alto, número de
+DMA. Imágenes `.LXI` (`tools/img2lx.py` de la BIOS): `LXI1`, ancho, alto, número de
 colores, paleta de 12 bits y píxeles. Los programas lo usan con funciones
 propias del BDOS:
 
@@ -166,7 +172,7 @@ propias del BDOS:
 
 Al acabar un programa que dejó el modo gráfico, el LX-DOS vuelve al texto.
 `VIEW.COM` (visor: `VIEW`, `VIEW *.LXI`; una tecla la siguiente, Esc sale) y
-`TUNNEL.COM` (rectángulos, texto y paleta rotando) están en `lx/dos/test/gfx`
+`TUNNEL.COM` (rectángulos, texto y paleta rotando) están en `dos/test/gfx`
 y en `sd/LXDOS.DSK`, con cuatro imágenes de ejemplo.
 
 ### Llamada al sistema: OUT (F2h),A (decidido con hww tras dos prototipos)
@@ -215,7 +221,7 @@ con el nuevo. Por eso en 0038h tiene que haber el mismo código de operación en
 los dos mapas (en la prueba, el mismo `JP` en las dos páginas 0). La llamada
 `OUT (F2h),A` cambia en la propia escritura.
 
-**Prototipo** (`lx/dos/test/sys/systest.asm`, `SYSTEST.COM` en
+**Prototipo** (`dos/test/sys/systest.asm`, `SYSTEST.COM` en
 `sd/LXDOS.DSK`):
 
 | | Usuario | Supervisor |
@@ -264,16 +270,17 @@ MSX-DOS 1. La ROM, al arrancar (o con la orden `BOOT` del monitor), busca
 `LXDOS.SYS` en la unidad A; si está, lo carga en el slot 3, bancos 20h-21h
 (C80000), y `__boot_jump` (`bios/boot.asm`, en la ventana 3) pone los bancos
 20h-22h en las ventanas 0-2 y salta a 0000h. Sin disco de sistema queda el
-monitor. `sd/LXDOS.DSK` es un disco de arranque con `HELLO.COM` de prueba.
+monitor. `sd/LXDOS.DSK` es el disco de arranque, con los programas de prueba
+(`README.TXT` del disco los lista); lo monta `make disk`.
 
-`LXDOS.SYS` (`lx/dos`) se compila aparte y usa los drivers de la ROM por sus
+`LXDOS.SYS` (`dos/`) se compila aparte y usa los drivers de la ROM por sus
 direcciones fijas. Por eso la ROM y el sistema tienen que ser de la misma
-compilación: `build.sh` graba una huella de la ABI (16 bits del CRC de
+compilación: el `Makefile` graba una huella de la ABI (16 bits del CRC de
 `bios_abi.asm`) en la ROM (`bios_abi_id`) y en la cabecera de `LXDOS.SYS`
 (`LXDS` y la huella en 0007h); si no coinciden, la ROM avisa y se queda en
-el monitor en vez de colgarse. Las direcciones: `lx/build.sh` saca del mapa de la ROM sus símbolos
-públicos residentes (ventana 3) a `lx/build/bios_abi.asm`. Las dos cosas se
-compilan juntas.
+el monitor en vez de colgarse. Las direcciones: el `Makefile` saca del mapa de
+la ROM sus símbolos públicos residentes (ventana 3) a `output/bios_abi.asm`
+(`lx/build/bios_abi.asm` en el core). Las dos cosas se compilan juntas.
 
 Mapas de memoria (slot 3):
 
@@ -326,7 +333,7 @@ funciones propias del BDOS, en números que CP/M y MSX-DOS no usan: `A0h`
 (DE = nombre ASCIIZ: lo carga en la física 100000h y lo toca de fondo; DE = 0
 la para; A = 0 bien, 1 no está, 2 error de disco, 3 formato, 4 demasiado
 grande) y `A1h` (DE = 32 bytes: sonando, posición, posiciones, patrones,
-fila, tipo y título). `MODPLAY.COM` (`lx/dos/test/modplay.asm`) las usa:
+fila, tipo y título). `MODPLAY.COM` (`dos/test/modplay.asm`) las usa:
 `MODPLAY fichero` toca y vuelve al DOS con la música sonando, `MODPLAY /S`
 la para y `MODPLAY` solo dice qué suena. La música sigue mientras se
 ejecutan otros programas (la interrupción del temporizador de la MS2 pasa
@@ -510,15 +517,15 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 | MSXTEST (funciones de MSX-DOS 1) | fecha y hora puestas y leídas, día de la semana, asignación, bloques de 300 × 1 byte con fin de fichero, sector absoluto |
 | VIEW, TUNNEL (en `sd/LXDOS.DSK`) | las cuatro imágenes de ejemplo y la demo de la paleta, en el emulador |
 | MODPLAY LXDEMO.MOD | carga y toca el MOD de fondo y vuelve al DOS; MODPLAY sin nada dice qué suena |
-| ZEXDOC y ZEXALL (`lx/dos/test/zex`, en `sd/LXDOS.DSK`) | arrancan en el LX-DOS (cabecera y primera prueba); completos, en la placa |
-| M80 y L80 (de `alestedos-dev.dsk` del 520EX) con `lx/dos/test/TEST.MAC` | `m80 =test`, `l80 test,test/n/e` y `test`: ensambla, enlaza y el TEST.COM nuevo se ejecuta |
-| MSXTEST (`lx/dos/test/msxtest.asm`) | fecha y hora del reloj, 1Bh, bloques 26h/27h (escribe 300, lee 500: fin de fichero y 300 leídos, datos iguales) y sector absoluto 2Fh correctos |
+| ZEXDOC y ZEXALL (`dos/test/zex`, en `sd/LXDOS.DSK`) | arrancan en el LX-DOS (cabecera y primera prueba); completos, en la placa |
+| M80 y L80 (de `alestedos-dev.dsk` del 520EX) con `dos/test/TEST.MAC` | `m80 =test`, `l80 test,test/n/e` y `test`: ensambla, enlaza y el TEST.COM nuevo se ejecuta |
+| MSXTEST (`dos/test/msxtest.asm`) | fecha y hora del reloj, 1Bh, bloques 26h/27h (escribe 300, lee 500: fin de fichero y 300 leídos, datos iguales) y sector absoluto 2Fh correctos |
 | LX-DOS (`sd/LXDOS.DSK`) | arranca; HELLO (consola, BIOS, argumentos) y FILETEST (crear, escribir, cerrar, abrir, leer, renombrar, buscar y borrar) correctos; el disco queda coherente (`+dsk_out=`) |
 | BIOS LX | consola, pitido, órdenes tecleadas; PLAY: melodía E4-E4-F4-G4 y bajo C3/G2 en la salida de la MS2 (`+pcm=fichero` guarda el audio) |
 | pictest | 59 interrupciones del temporizador en 60 ms, 4 VBlank |
 | ms2test | onda cuadrada a 187,5 Hz, ±4064, 7 fines de muestra y 11 ticks de 300 Hz en 40 ms |
 | DIR y MOD SLL1.STM con `mag-player.dsk` (`+dsk=`) | lista los 10 ficheros; carga SLL1.STM (82 KB, 169 sectores) y la toca |
-| MOD (`lx/test/LXDEMO.MOD`, de `tools/make_test_mod.py`) | `+mod=` lo carga como el OSD; MOD toca la melodía (E4, F4) y el bajo (C3), con la posición y la fila en la línea de estado |
+| MOD (`lx/test/LXDEMO.MOD`, de `tools/make_test_mod.py` de la BIOS) | `+mod=` lo carga como el OSD; MOD toca la melodía (E4, F4) y el bajo (C3), con la posición y la fila en la línea de estado |
 | dmatest | relleno 8x3, copia 4x2 y copia con transparente correctos, 4 IRQ |
 
 ## Pendiente

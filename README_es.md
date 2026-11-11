@@ -42,13 +42,16 @@ o carga un MOD con "Load MOD" en el OSD y escribe `MOD`.
 | `AlesteLX.sv` | top de MiSTer (hps_io, OSD, vídeo, audio) |
 | `rtl/core` | núcleo (`aleste_lx_core.sv`) y periféricos LX (`rtl/core/lx`) |
 | `rtl/hww` | ficheros de aleste-lx-fpga-sv que usa el núcleo |
-| `lx` | BIOS: aleste-xi-bios (submódulo, sin tocar), `patches/` (arreglos), `overlay/` (drivers nuevos y monitor), `build.sh` |
+| `lx` | BIOS y LX-DOS: `aleste-xi-bios` (submódulo, el repositorio de hww, donde viven desde noviembre de 2026) y `build.sh` (lo compila con su Makefile) |
 | `lx/test` | ROMs de prueba de PIC, MS2 y DMA |
 | `sim` | simulación con Verilator (`make`) |
 | `doc/aleste-lx.md` | hardware, registros y API de los drivers |
 
-La BIOS se compila con z88dk: `sh lx/build.sh` (o con Docker:
-`docker run --rm -v "$PWD":/src -w /src/lx z88dk/z88dk sh build.sh`).
+La BIOS y el LX-DOS se compilan con z88dk: `sh lx/build.sh` deja `LX.ROM`,
+`bios_abi.asm`, `LXDOS.SYS` y `LXDOS.DSK` (este, con python3) en `lx/build/`;
+`sh lx/build.sh --sd` los copia además a `sd/`. Sin instalar z88dk, con Docker:
+`docker run --rm -v "$PWD":/src -w /src/lx z88dk/z88dk sh build.sh`, y después
+`sh lx/build.sh --sd` fuera para montar el disco.
 
 ## Créditos
 

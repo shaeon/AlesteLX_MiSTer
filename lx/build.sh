@@ -1,92 +1,41 @@
 #!/bin/sh
-# lx/build.sh - Compila la BIOS del Aleste LX (submodulo aleste-xi-bios de hww,
-# sin tocar) con los parches de lx/patches (arreglos a ficheros de hww) y
-# lx/overlay (codigo nuestro: drivers nuevos y main.c, que se copian encima),
-# y monta lx/build/LX.ROM (64 KB).
+# lx/build.sh - Compila la BIOS del Aleste LX (LX.ROM) y el LX-DOS (LXDOS.SYS,
+# LXDOS.DSK) con el Makefile del submodulo aleste-xi-bios de hww, donde viven
+# los dos desde noviembre de 2026, y deja los resultados en lx/build/.
 #
-# Necesita z88dk (zcc en el PATH). Sin instalarlo, con Docker:
+#   sh lx/build.sh          ->  lx/build/LX.ROM, bios_abi.asm, LXDOS.SYS, LXDOS.DSK
+#   sh lx/build.sh --sd     ->  ademas, sd/LX.ROM y sd/LXDOS.DSK
+#
+# Necesita z88dk (zcc en el PATH, o Z88DK_PATH=...); el disco, python3. Sin
+# instalar z88dk, con Docker (el disco se monta despues, fuera, con --sd):
 #   docker run --rm -v "$PWD":/src -w /src/lx z88dk/z88dk sh build.sh
 #
 # LX.ROM es la ROM de arranque del core: en la SD, games/AlesteLX/boot.rom.
 set -e
 cd "$(dirname "$0")"
-rm -rf build/src
+BIOS=aleste-xi-bios
+[ -f "$BIOS/Makefile" ] || { echo "falta el submodulo: git submodule update --init"; exit 1; }
+
+MAKE_ARGS=""
+[ -n "$Z88DK_PATH" ] && MAKE_ARGS="Z88DK_PATH=$Z88DK_PATH"
+if command -v zcc > /dev/null 2>&1 || [ -n "$Z88DK_PATH" ]; then
+    # shellcheck disable=SC2086
+    make -C "$BIOS" $MAKE_ARGS rom dos
+else
+    echo "sin z88dk: uso lo ya compilado en $BIOS/output"
+fi
+if command -v python3 > /dev/null 2>&1; then
+    # shellcheck disable=SC2086
+    make -C "$BIOS" $MAKE_ARGS disk
+else
+    echo "sin python3: no se monta LXDOS.DSK"
+fi
+
 mkdir -p build
-cp -r aleste-xi-bios build/src
-rm -rf build/src/.git build/src/build build/src/output
-for p in patches/*.patch; do
-    echo "== $p"
-    (cd build/src && patch -p1 -s < "../../$p")
+for f in LX.ROM bios_abi.asm LXDOS.SYS LXDOS.DSK; do
+    [ -f "$BIOS/output/$f" ] && cp "$BIOS/output/$f" build/ && echo "lx/build/$f"
 done
-cp -r overlay/. build/src/
-cd build/src
-mkdir -p build
-zcc +z80 -vn -O3 --no-crt -m -Iinclude -I. -s -clib=sdcc_iy -o build/aleste \
-    asm/sections.asm asm/crt0_aleste.asm fonts/font_win1252.asm \
-    bios/errors.asm bios/undefined_method.asm \
-    drivers/mmu/mmu.asm drivers/mmu/mmu_mem.asm drivers/crtc/crtc.asm \
-    drivers/palette/palette.asm drivers/palette/palette_12b.asm \
-    drivers/vbuf/vbuf_16k1b.asm drivers/vbuf/vbuf_64k8b.asm drivers/vbuf/vbuf.asm \
-    drivers/audio/aduio_ay8910.asm drivers/audio/audio.asm \
-    drivers/int/int.asm drivers/int/int_lx.asm \
-    drivers/timer/timer.asm drivers/timer/timer_lx.asm \
-    drivers/dma/dma.asm drivers/dma/dma_lx.asm \
-    drivers/kbd/kbd.asm drivers/kbd/kbd_lx.asm \
-    drivers/snd/snd.asm drivers/snd/snd_ms2.asm bios/irqsave.asm bios/boot.asm bios/dosgate.asm \
-    drivers/fdc/fdc.asm drivers/fdc/fdc_765.asm \
-    src/drivers/mmu.c src/drivers/mmu_mem.c src/drivers/crtc.c src/drivers/palette.c src/drivers/vbuf8.c \
-    src/drivers/vbuf.c src/drivers/audio.c \
-    src/drivers/int.c src/drivers/timer.c src/drivers/dma.c src/drivers/kbd.c src/drivers/snd.c src/drivers/fdc.c \
-    src/console.c src/tune.c src/mod.c src/fat.c main.c
-# LX.ROM: 64 KB con cada seccion en su direccion (sin Python: vale en la
-# imagen de Docker de z88dk)
-head -c 65536 /dev/zero > build/LX.ROM
-put() { dd if="build/aleste_$1.bin" of=build/LX.ROM bs=1 seek=$(($2)) conv=notrunc 2>/dev/null; }
-put code_crt_start 0x0000
-put code_compiler  0x0200
-put DRV_CODE       0xC000
-put FONT_DATA      0xE000
-put DRV_DATA       0xF000
-put DRV_VTABLE     0xFD00
-[ "$(wc -c < build/LX.ROM)" -eq 65536 ] || { echo "LX.ROM no mide 64 KB: alguna seccion se sale"; exit 1; }
-cp build/LX.ROM ../LX.ROM
-echo "lx/build/LX.ROM"
-
-# ---- ABI de la ROM: los simbolos publicos de la parte residente (ventana 3:
-# drivers, sus VTables, datos y fuente), para los programas que se enlazan
-# aparte (LXDOS.SYS). Cambian si cambia la ROM: se compilan juntos.
-awk '$1 !~ /_(head|tail|size)$/ && $6 == "public," && ($9 == "DRV_CODE," || $9 == "DRV_DATA," || $9 == "DRV_VTABLE," || $9 == "FONT_DATA,") {
-        a = substr($3, 2); print "PUBLIC " $1; print "defc " $1 " = 0x" a }' \
-    build/aleste.map > ../bios_abi.asm
-echo "lx/build/bios_abi.asm: $(grep -c '^PUBLIC' ../bios_abi.asm) simbolos"
-
-# ---- Huella de la ABI (16 bits del CRC de bios_abi.asm): se graba en la ROM
-# (bios_abi_id, main.c) y en la cabecera de LXDOS.SYS ("LXDS" + huella en 0007h);
-# la ROM no arranca un LXDOS.SYS de otra compilacion (se colgaria al llamar a
-# los drivers por direcciones que ya no son las suyas)
-ABI_ID=$(( $(cksum < ../bios_abi.asm | cut -d' ' -f1) & 0xFFFF ))
-ABI_AT=$(awk '$1 == "_bios_abi_id" { print substr($3, 2) }' build/aleste.map)
-[ -n "$ABI_AT" ] || { echo "falta bios_abi_id en la ROM"; exit 1; }
-printf "$(printf '\\%03o\\%03o' $((ABI_ID & 255)) $((ABI_ID >> 8)))" | \
-    dd of=build/LX.ROM bs=1 seek=$((0x$ABI_AT)) conv=notrunc 2>/dev/null
-cp build/LX.ROM ../LX.ROM
-printf 'defc ABI_ID = 0x%04X\n' $ABI_ID > ../abi_id.inc
-echo "huella de la ABI: $(printf '%04X' $ABI_ID) (en $ABI_AT)"
-
-# ---- LXDOS.SYS: el sistema que la ROM arranca del disco (lx/dos)
-cd ../..
-rm -rf build/dos
-mkdir -p build/dos
-cp dos/*.c dos/*.h dos/*.asm build/abi_id.inc build/dos/
-cd build/dos
-zcc +z80 -vn -O3 --no-crt -m -I../src/include -I../src -s -clib=sdcc_iy -DFAT_WRITE -o lxdos \
-    sections.asm crt0_dos.asm ../bios_abi.asm \
-    ../src/src/drivers/int.c ../src/src/drivers/timer.c ../src/src/drivers/dma.c \
-    ../src/src/drivers/kbd.c ../src/src/drivers/snd.c ../src/src/drivers/fdc.c \
-    ../src/src/drivers/vbuf.c ../src/src/console.c ../src/src/fat.c ../src/src/mod.c gfx8.c bdos.c main.c
-cat lxdos_code_crt_start.bin > LXDOS.SYS
-head -c $((0x100 - $(wc -c < lxdos_code_crt_start.bin))) /dev/zero >> LXDOS.SYS
-cat lxdos_code_compiler.bin >> LXDOS.SYS
-[ "$(wc -c < LXDOS.SYS)" -le 45056 ] || { echo "LXDOS.SYS pasa de 44 KB (la pila va arriba de la ventana 2)"; exit 1; }
-cp LXDOS.SYS ../LXDOS.SYS
-echo "lx/build/LXDOS.SYS: $(wc -c < LXDOS.SYS) bytes"
+if [ "$1" = "--sd" ]; then
+    cp build/LX.ROM ../sd/LX.ROM && echo "sd/LX.ROM"
+    [ -f build/LXDOS.DSK ] && cp build/LXDOS.DSK ../sd/LXDOS.DSK && echo "sd/LXDOS.DSK"
+fi
