@@ -3,6 +3,7 @@
 #include <verilated.h>
 #include <verilated_vcd_c.h>
 #include "Vmmu_native.h"
+#include "Vmmu_native___024root.h"
 #include "mmu.h"
 
 #define CLK_HALF_PERIOD 5
@@ -257,6 +258,36 @@ public:
     }
 
     // Симуляция M1 цикла
+    // M1 como en el core: la CPU espera (M1 activo) hasta que la memoria da el
+    // dato (ack); la MMU ve el codigo de operacion con el M1 todavia activo
+    // Salida del supervisor (en el RET): una lectura de instruccion de un C9
+    void exit_to_user() {
+        auto saved = m_wb_read_callback;
+        m_wb_read_callback = [](uint32_t) { return (uint8_t)0xC9; };
+        simulate_z80_m1_fetch(0x0000);
+        m_wb_read_callback = saved;
+    }
+
+    void simulate_z80_m1_fetch(uint16_t addr) {
+        std::cout << "  Z80 M1 fetch (with wait): addr=0x" << std::hex << addr << std::dec << std::endl;
+        z80_bus_idle();
+        top->cpu_a = addr;
+        clock_high(SETUP_TIME);
+        top->cpu_mreq_n = 0;
+        top->cpu_m1_n = 0;
+        eval(CLK_REST_TIME);
+        clock_low(CLK_HALF_PERIOD);
+        clock_high(SETUP_TIME);          // la memoria responde (ack + dato)
+        eval(CLK_REST_TIME);
+        clock_low(CLK_HALF_PERIOD);
+        clock_high(SETUP_TIME);          // la MMU ve el M1 con el ack
+        eval(CLK_REST_TIME);
+        clock_low(CLK_HALF_PERIOD);
+        clock_high(SETUP_TIME);
+        z80_bus_idle();
+        eval(CLK_REST_TIME);
+    }
+
     void simulate_z80_m1_cycle(uint16_t addr) {
         std::cout << "  Z80 M1 Cycle: addr=0x" << std::hex << addr << std::dec << std::endl;
         
@@ -443,8 +474,50 @@ void test_supervisor_exit(MMUNativeTestUtils& utils) {
     utils.log_registers();
     
     // Должен сработать delayed exit, синхронизированный с M1
-    utils.simulate_z80_m1_cycle(0x0000); // M1 cycle для завершения выхода
+    utils.exit_to_user();                // la salida se completa en el RET
     utils.assert_equal(utils.get_supervisor_mode(), 0, "Supervisor mode should be disabled after M1");
+}
+
+// Salida del supervisor en el RET (propuesta de hww): OUT (F0h) con el bit 0 a
+// 0 solo la arma; sale en el M1 que lee un C9. Al pasar a legacy (bit 1 a 0),
+// como antes, en el M1 siguiente.
+void test_exit_on_ret(MMUNativeTestUtils& utils) {
+    std::cout << "\n=== TESTING SUPERVISOR EXIT ON RET ===" << std::endl;
+    utils.reset_pulse();                                    // estado limpio (las pruebas anteriores dejan legacy)
+    uint8_t opcode = 0x00;
+    utils.set_m_wb_delegates([&](uint32_t) { return opcode; });
+    // al supervisor por la trampa de 0038h
+    utils.mmu_write_reg(MMURegisterAddress::CONTROL, ControlRegister::NATIVE_MODE | ControlRegister::SUPERVISOR_HOOK);
+    utils.simulate_z80_m1_fetch(0x0100);
+    utils.simulate_z80_m1_fetch(0x0038);
+    utils.assert_equal(utils.get_supervisor_mode(), 1, "Trap at 0038h: supervisor");
+    // armar la salida
+    utils.mmu_write_reg(MMURegisterAddress::CONTROL, ControlRegister::NATIVE_MODE | ControlRegister::SUPERVISOR_HOOK);
+    opcode = 0x00;                                          // NOP
+    utils.simulate_z80_m1_fetch(0x0200);
+    utils.assert_equal(utils.get_supervisor_mode(), 1, "Exit armed: an M1 reading NOP stays in supervisor");
+    opcode = 0xF1;                                          // POP AF
+    utils.simulate_z80_m1_fetch(0x0201);
+    utils.assert_equal(utils.get_supervisor_mode(), 1, "Exit armed: an M1 reading POP AF stays in supervisor");
+    opcode = 0xC9;                                          // RET
+    utils.simulate_z80_m1_fetch(0x0202);
+    utils.assert_equal(utils.get_supervisor_mode(), 0, "Exit armed: the M1 reading RET leaves supervisor");
+    opcode = 0xC9;                                          // un RET ya en usuario: nada
+    utils.simulate_z80_m1_fetch(0x0300);
+    utils.assert_equal(utils.get_supervisor_mode(), 0, "Another RET in user mode changes nothing");
+    // sin armar, un RET en supervisor no sale
+    utils.simulate_z80_m1_fetch(0x0038);
+    utils.assert_equal(utils.get_supervisor_mode(), 1, "Trap again: supervisor");
+    opcode = 0xC9;
+    utils.simulate_z80_m1_fetch(0x0400);
+    utils.assert_equal(utils.get_supervisor_mode(), 1, "Not armed: RET stays in supervisor");
+    // al pasar a legacy: sale en el M1 siguiente, sea cual sea
+    utils.mmu_write_reg(MMURegisterAddress::CONTROL, 0x00);
+    opcode = 0x00;
+    utils.simulate_z80_m1_fetch(0x0000);
+    utils.assert_equal(utils.get_supervisor_mode(), 0, "Switch to legacy: exit on the next M1 (as before)");
+    utils.set_m_wb_delegates(nullptr);
+    utils.reset_pulse();                                    // estado limpio para las pruebas siguientes
 }
 
 void test_hardware_trap(MMUNativeTestUtils& utils) {
@@ -456,7 +529,7 @@ void test_hardware_trap(MMUNativeTestUtils& utils) {
     utils.log_registers();
     
     // Симулируем доступ к trap адресам
-    utils.simulate_z80_m1_cycle(0x0000); // Reset vector
+    utils.exit_to_user();                // al modo usuario (salida en el RET)
     // Adjust expectation to observed RTL behaviour: supervisor mode remains 0
     utils.assert_equal(utils.get_supervisor_mode(), 0, "Hardware trap should enable supervisor mode");
     
@@ -497,6 +570,7 @@ void test_address_translation(MMUNativeTestUtils& utils) {
     
     // Устанавливаем native mode
     utils.mmu_write_reg(MMURegisterAddress::CONTROL, ControlRegister::NATIVE_MODE);
+    utils.exit_to_user();                // al modo usuario (salida en el RET)
     utils.log_registers();
 
     // Ensure banks are configured for slot 0 (make current slot = 0)
@@ -585,6 +659,7 @@ void test_z80_io_protection(MMUNativeTestUtils& utils) {
     // Включаем защиту и переходим в user mode
     utils.mmu_write_reg(MMURegisterAddress::CONTROL, 
                        ControlRegister::NATIVE_MODE | ControlRegister::MMIO_USERLOCK);
+    utils.exit_to_user();                // al modo usuario (salida en el RET)
     
     utils.assert_equal(utils.get_supervisor_mode(), 0, "Should be in user mode for protection test");
     utils.assert_equal(utils.get_mmio_userlock(), 1, "MMIO should be locked");
@@ -613,6 +688,7 @@ void test_access_protection(MMUNativeTestUtils& utils) {
     // Включаем защиту и переходим в user mode
     utils.mmu_write_reg(MMURegisterAddress::CONTROL, 
                        ControlRegister::NATIVE_MODE | ControlRegister::MMIO_USERLOCK);
+    utils.exit_to_user();                // al modo usuario (salida en el RET)
     
     // Убеждаемся, что мы в user mode
     utils.assert_equal(utils.get_supervisor_mode(), 0, "Should be in user mode for protection test");
@@ -725,6 +801,7 @@ int main(int argc, char** argv) {
     test_supervisor_access(utils);
     test_z80_io_protection(utils);
     test_supervisor_exit(utils);
+    test_exit_on_ret(utils);
     test_hardware_trap(utils);
     
     utils.print_test_results();

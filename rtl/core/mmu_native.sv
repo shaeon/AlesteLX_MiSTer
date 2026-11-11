@@ -219,11 +219,25 @@ module mmu_native (
                     supervisor_mode_reg     <= 1'b1;
                     supervisor_exit_pending <= 1'b0;
                 end
-                // Синхронизация выхода с M1
-                else if (supervisor_exit_pending && m1_detected) begin
-                    supervisor_mode_reg <= 1'b0;
+                // Al pasar a legacy (bit 1 a 0, el 520EX), como antes: sale en
+                // el M1 siguiente
+                else if (supervisor_exit_pending && m1_detected && !reg_ctrl_native_mode) begin
+                    supervisor_mode_reg     <= 1'b0;
                     supervisor_exit_pending <= 1'b0;
                 end
+            end
+
+            // Salida del supervisor en el RET (propuesta de hww): OUT (F0h) con
+            // el bit 0 a 0 solo la arma; sale cuando un M1 lee un C9 (RET). Ese
+            // codigo de operacion ya se ha leido con el mapa del supervisor, y
+            // las lecturas de la pila del RET (la vuelta) ya se hacen con el del
+            // usuario. Entre el OUT y el RET hay que tener las interrupciones
+            // desactivadas (un RET de una rutina de interrupcion dispararia la
+            // salida).
+            if (supervisor_mode_reg && supervisor_exit_pending && m1_detected &&
+                m_wb_ack_i && m_wb_dat_i == 8'hC9) begin
+                supervisor_mode_reg     <= 1'b0;
+                supervisor_exit_pending <= 1'b0;
             end
 
             // Запрос на выход (из порта D7)

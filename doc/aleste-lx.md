@@ -186,78 +186,64 @@ ciclos con un trampolín en una página compartida, y **380** con el esquema
 acordado (abajo), contando el `LD A,n`, el `CALL` y el contador de llamadas de
 la prueba.
 
-**Prototipo con el esquema acordado** (`lx/dos/test/sys/systest.asm`,
-`SYSTEST.COM` en `sd/LXDOS.DSK`). El wrapper y la salida están en la misma
-dirección de una página que es distinta en los dos mapas (la 1, 7F00h):
+**Salida en el RET** (propuesta de hww). `OUT (F0h),A` con el bit 0 a 0 solo
+**arma** la salida; la MMU sale del supervisor en el M1 que lee un `C9`
+(`RET`). Ese código de operación se lee con el mapa del supervisor, y las
+lecturas de la pila del `RET` (la vuelta) ya con el del usuario. Así el núcleo
+restaura AF y el SP del usuario todavía en supervisor, desde su propia pila, y
+la pila del usuario puede ser privada. Entre el `OUT (F0h),A` y el `RET`, las
+interrupciones desactivadas (un `RET` de una rutina de interrupción dispararía
+la salida). Al pasar a legacy (bit 1 a 0, el modo 520EX), la salida sigue
+siendo en el M1 siguiente. Prueba unitaria: `sim/unit/mmu_native`
+(`test_exit_on_ret`).
 
-| Dirección | Mapa del usuario | Mapa del supervisor |
+**Cuándo cambia el mapa** (medido con `MAPTEST2.COM`, igual en el core y en el
+emulador): en una trampa (M1 de 0038h/0066h) el cambio se registra en el mismo
+M1, cuando la dirección de ese código de operación ya ha salido: el código de
+operación se lee con el mapa anterior; sus operandos, la pila y lo que sigue,
+con el nuevo. Por eso en 0038h tiene que haber el mismo código de operación en
+los dos mapas (en la prueba, el mismo `JP` en las dos páginas 0). La llamada
+`OUT (F2h),A` cambia en la propia escritura.
+
+**Prototipo** (`lx/dos/test/sys/systest.asm`, `SYSTEST.COM` en
+`sd/LXDOS.DSK`):
+
+| | Usuario | Supervisor |
 |---|---|---|
-| 7F00h | `OUT (F2h),A` (entra) | `OUT (F0h),A` (salida) |
-| 7F02h | `NOP` | `NOP` (byte de transición, igual en los dos) |
-| 7F03h | `EI` | prólogo del núcleo |
-| 7F04h | `RET` | … |
+| 7F00h | `DI` | |
+| 7F01h | `OUT (F2h),A` (entra) | |
+| 7F03h | | `JP k_entry` |
 
-**Cuándo cambia el mapa** (medido con `MAPTEST2.COM`, igual en el core y en
-el emulador): en una trampa (M1 de 0038h/0066h) o en la salida pendiente
-(primer M1 tras escribir F0h con el bit 0 a 0), el cambio se registra en el
-mismo M1, cuando la dirección física de ese código de operación ya ha salido:
-**el código de operación se lee con el mapa anterior; sus operandos, la pila y
-lo que sigue, con el nuevo**. La llamada `OUT (F2h),A`, en cambio, cambia en la
-propia escritura. Por eso el primer byte tras `OUT (F0h),A` tiene que ser el
-mismo en los dos mapas (el `NOP`), y en 0038h tiene que haber el mismo código
-de operación en los dos (aquí un `JP` igual en las dos páginas 0).
+- **Entrada**: el usuario hace `CALL 7F00h`. El núcleo guarda el SP del
+  usuario en 4FFEh (`LD (nn),SP`), usa su propia pila debajo (W1) y reactiva
+  las interrupciones durante la llamada. El `DI` del wrapper cierra la
+  ventana entre la entrada y el cambio de pila: no hay carrera.
+- **Vuelta**: `DI`; `PUSH AF` (el resultado); `OUT (F0h),A` (arma); `POP AF`;
+  `LD SP,(4FFEh)`; `EI`; `RET`. El usuario recibe HL y AF enteros.
+- **Interrupciones en modo usuario**: la rutina de 0038h mira si viene del
+  usuario sin tocar la pila (`EX AF,AF'` y una variable de contexto), guarda
+  su SP con `LD (nn),SP`, usa su propia pila y vuelve con la misma salida en
+  el `RET`.
 
-El programa hace `CALL 7F00h`; tras el `OUT (F2h),A`, 7F02h y lo siguiente se
-leen del mapa del supervisor. El núcleo guarda el SP del usuario en 4FFEh y
-usa su propia pila debajo, en W1 (como en el diseño de hww). Al terminar
-restaura el SP y salta a 7F00h, donde en su mapa está `OUT (F0h),A`: tras el
-`NOP`, `EI` y `RET` ya se leen del mapa del usuario, y el `RET` del wrapper es
-la vuelta. `OUT` no toca los indicadores: el resultado llega en HL y en el
-acarreo; A se pierde.
+Resultados, iguales en el core (simulación) y en el emulador: 20009 llamadas,
+páginas privadas bien (también la pila del usuario). Con las teclas, 8
+interrupciones en modo usuario; con el VBlank activo (`VBLANK equ 1`), 121 en
+el core y 62 en el emulador, todas de vuelta por el `RET`. **425 ciclos por
+vuelta del bucle** de llamadas nulas (≈ 24 µs a 18 MHz), contando el
+`LD A,n`, el `CALL` y el bucle.
 
-Dos cosas que enseña:
+Versiones anteriores: `RST 6` con el formato de un CALLF de MSX costaba 1511
+ciclos (leer los 3 bytes de detrás del `RST` de la memoria privada del
+usuario). La v3 (salida en el M1 siguiente a `OUT (F0h),A`) daba 380 ciclos,
+pero necesitaba un byte de transición igual en los dos mapas, la pila del
+usuario en una página compartida y detectar la carrera tras `OUT (F2h),A` por
+la dirección de vuelta; con el VBlank activo, en el core la consola dejaba de
+dibujar. La salida en el `RET` lo resuelve todo.
 
-- **Interrupciones en modo usuario**: entran por la trampa de 0038h; para
-  volver hay que restaurar AF entero, y esa instrucción (`POP AF`) se lee ya
-  del mapa del usuario, así que la pila del usuario tiene que estar en una
-  página que vean los dos mapas (o el núcleo tiene que escribir en ella).
-- **La carrera tras `OUT (F2h),A`**: si llega una interrupción antes de que el
-  núcleo cambie de pila, la CPU guarda la vuelta con el SP del usuario pero ya
-  con el mapa del supervisor, y la rutina no sabe que estaba en una llamada.
-  Sin `DI` en la entrada, la rutina lo detecta por la dirección de vuelta (el
-  prólogo) y vuelve al núcleo. La salida sí desactiva las interrupciones unas
-  pocas instrucciones (de ahí el `EI` del wrapper). Un bit de estado de
-  hardware («entrada desde el usuario», la recomendación 19 de hww) lo
-  resolvería sin trucos.
-
-Resultados:
-
-- Core (simulación) y emulador, con las interrupciones del teclado: 20009
-  llamadas, 8 interrupciones en modo usuario, páginas privada y compartida
-  bien. **380 ciclos por llamada nula** (≈ 21 µs a 18 MHz; con `RST 6` eran
-  1511).
-- Emulador, con el VBlank activo para que lleguen interrupciones a menudo
-  (`VBLANK equ 1` en `systest.asm`): 20009 llamadas, 65 interrupciones en
-  modo usuario y **1 carrera** detectada y resuelta sin `DI` en la entrada
-  (el número varía según dónde caigan las interrupciones).
-- `MAPTEST2.COM` (`maptest2.asm`): de la primera instrucción tras
-  `OUT (F0h),A`, el código de operación sale del mapa del supervisor y el
-  operando del usuario, igual en el core y en el emulador. (`MAPTEST.COM` no
-  podía verlo: usaba el mismo código de operación en los dos mapas.)
-
-**Problema abierto**: con el VBlank activo, en el core (no en el emulador)
-la consola deja de dibujar después de que llegue una interrupción del VBlank
-mientras imprime. La llamada al sistema sigue funcionando: la traza de
-instrucciones (`+pc_t0`/`+pc_t1` en el banco de pruebas) muestra el bucle de
-llamadas nulas ejecutándose con normalidad, y el PIC atiende el VBlank cada
-cuadro; pero las llamadas a la BDOS que imprimen vuelven sin dibujar, y la
-memoria del núcleo acaba machacada. Apunta al camino consola/BDOS con
-interrupciones (el LX-DOS normalmente tiene el VBlank tapado mientras corre un
-programa), no al mecanismo de la llamada. El VBlank solo, con un programa en
-supervisor (`VBTEST.COM`), no lo provoca en lo que se ha simulado. Otra diferencia entre core y emulador por aclarar: en el emulador el
-temporizador del sistema pide interrupción por la línea 6 del PIC; en el core
-la línea 6 está a 0 y la 4 lleva la interrupción del Gate Array.
-Pendiente también: la variante legacy (`F2xxh`) desde un programa del CPC.
+Pendiente: la diferencia del temporizador (en el emulador pide interrupción
+por la línea 6 del PIC; en el core la línea 6 está a 0 y la 4 lleva la
+interrupción del Gate Array) y la variante legacy (`F2xxh`) desde un programa
+del CPC.
 
 ## LX-DOS
 
