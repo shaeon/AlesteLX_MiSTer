@@ -191,11 +191,21 @@ la prueba.
 (`RET`). Ese código de operación se lee con el mapa del supervisor, y las
 lecturas de la pila del `RET` (la vuelta) ya con el del usuario. Así el núcleo
 restaura AF y el SP del usuario todavía en supervisor, desde su propia pila, y
-la pila del usuario puede ser privada. Entre el `OUT (F0h),A` y el `RET`, las
-interrupciones desactivadas (un `RET` de una rutina de interrupción dispararía
-la salida). Al pasar a legacy (bit 1 a 0, el modo 520EX), la salida sigue
-siendo en el M1 siguiente. Prueba unitaria: `sim/unit/mmu_native`
-(`test_exit_on_ret`).
+la pila del usuario puede ser privada. Al pasar a legacy (bit 1 a 0, el modo
+520EX), la salida sigue siendo en el M1 siguiente.
+
+**Bloqueo de interrupciones** (propuesta de hww; bit 3 del registro de
+control). La MMU tapa la petición de interrupción a la CPU durante las dos
+secciones críticas; la interrupción sigue pendiente en el PIC y llega en cuanto
+se quita el bloqueo. Lo pone la llamada (`OUT (F2h),A`), y el núcleo lo quita
+escribiendo el control con el bit 3 a 0 (y el 0 a 1) una vez cambiada la pila.
+Lo pone también el armado de la salida, y lo quita la propia salida en el
+`RET`. Así no hacen falta `DI` ni `EI`: el estado de las interrupciones del Z80
+que tenía el usuario se conserva, y un `RET` de una rutina de interrupción no
+puede disparar la salida. Al leer el control, el bit 3 dice si hay bloqueo. Al
+pasar a legacy no hay bloqueo. La NMI no se tapa (en legacy la usa la Magic
+Sound). Pruebas unitarias: `sim/unit/mmu_native` (`test_exit_on_ret` y
+`test_int_hold`).
 
 **Cuándo cambia el mapa** (medido con `MAPTEST2.COM`, igual en el core y en el
 emulador): en una trampa (M1 de 0038h/0066h) el cambio se registra en el mismo
@@ -210,25 +220,24 @@ los dos mapas (en la prueba, el mismo `JP` en las dos páginas 0). La llamada
 
 | | Usuario | Supervisor |
 |---|---|---|
-| 7F00h | `DI` | |
-| 7F01h | `OUT (F2h),A` (entra) | |
-| 7F03h | | `JP k_entry` |
+| 7F00h | `OUT (F2h),A` (entra y bloquea) | |
+| 7F02h | | `JP k_entry` |
 
 - **Entrada**: el usuario hace `CALL 7F00h`. El núcleo guarda el SP del
-  usuario en 4FFEh (`LD (nn),SP`), usa su propia pila debajo (W1) y reactiva
-  las interrupciones durante la llamada. El `DI` del wrapper cierra la
-  ventana entre la entrada y el cambio de pila: no hay carrera.
-- **Vuelta**: `DI`; `PUSH AF` (el resultado); `OUT (F0h),A` (arma); `POP AF`;
-  `LD SP,(4FFEh)`; `EI`; `RET`. El usuario recibe HL y AF enteros.
+  usuario en 4FFEh (`LD (nn),SP`, que no toca los indicadores), usa su propia
+  pila debajo (W1) y quita el bloqueo: la llamada corre con interrupciones si
+  el usuario las tenía.
+- **Vuelta**: `PUSH AF` (el resultado); `OUT (F0h),A` (arma y bloquea);
+  `POP AF`; `LD SP,(4FFEh)`; `RET`. El usuario recibe HL y AF enteros.
 - **Interrupciones en modo usuario**: la rutina de 0038h mira si viene del
-  usuario sin tocar la pila (`EX AF,AF'` y una variable de contexto), guarda
-  su SP con `LD (nn),SP`, usa su propia pila y vuelve con la misma salida en
-  el `RET`.
+  usuario sin tocar la pila (`EX AF,AF'` y una variable de contexto, que se
+  marca después de armar la salida), guarda su SP con `LD (nn),SP`, usa su
+  propia pila y vuelve con la misma salida en el `RET`.
 
 Resultados, iguales en el core (simulación) y en el emulador: 20009 llamadas,
 páginas privadas bien (también la pila del usuario). Con las teclas, 8
-interrupciones en modo usuario; con el VBlank activo (`VBLANK equ 1`), 121 en
-el core y 62 en el emulador, todas de vuelta por el `RET`. **425 ciclos por
+interrupciones en modo usuario; con el VBlank activo (`VBLANK equ 1`), 103
+en el core y 69 en el emulador, todas de vuelta por el `RET`. **427 ciclos por
 vuelta del bucle** de llamadas nulas (≈ 24 µs a 18 MHz), contando el
 `LD A,n`, el `CALL` y el bucle.
 
@@ -238,7 +247,10 @@ usuario). La v3 (salida en el M1 siguiente a `OUT (F0h),A`) daba 380 ciclos,
 pero necesitaba un byte de transición igual en los dos mapas, la pila del
 usuario en una página compartida y detectar la carrera tras `OUT (F2h),A` por
 la dirección de vuelta; con el VBlank activo, en el core la consola dejaba de
-dibujar. La salida en el `RET` lo resuelve todo.
+dibujar. La v4 (salida en el `RET`, con `DI` en el wrapper y `EI` al volver)
+ya funcionaba en el core también con el VBlank (425 ciclos), pero siempre
+devolvía al usuario con las interrupciones activas; el bloqueo de la v5 lo
+evita.
 
 Pendiente: la diferencia del temporizador (en el emulador pide interrupción
 por la línea 6 del PIC; en el core la línea 6 está a 0 y la 4 lleva la
