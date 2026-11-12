@@ -33,12 +33,14 @@
 
 //----------------------------------------------------------------------------
 // Copia local para el core NewBrain, tomada de gyurco/Amstrad_MiST (u765/).
-// UNICO CAMBIO: la salida int_o, la linea INT del 765 para las
-// interrupciones de SEEK y RECALIBRATE. La ROM de la controladora del
-// NewBrain (d417) la espera en el bit 5 de su puerto 40 despues de cada
-// busqueda, antes de pedir SENSE INTERRUPT STATUS; el Amstrad no la usa y
-// por eso el original no la saca. Si se actualiza este fichero, hay que
-// volver a meterla.
+// UNICO CAMBIO: la salida int_o, la linea INT del 765. La ROM de la
+// controladora del NewBrain (d417) la espera en el bit 5 de su puerto 40
+// despues de cada busqueda, antes de pedir SENSE INTERRUPT STATUS; el Amstrad
+// no la usa y por eso el original no la saca. Si se actualiza este fichero,
+// hay que volver a meterla.
+// En el Aleste (PB1 de la PPI y linea 0 del PIC del LX) sigue al uPD765 sin
+// DMA, como el emulador alestelx: busqueda terminada, fase de ejecucion y fase
+// de resultado (antes, solo las busquedas).
 //----------------------------------------------------------------------------
 //for accurate head stepping rate, set CYCLES to cycles/ms
 //8MHz = 4000 (default)
@@ -392,7 +394,11 @@ always @(posedge clk_sys) begin : fdc
 	//reg i_mfm;
 	reg i_sk;
 
-	int_o <= int_state[0] | int_state[1];
+	// INT como el uPD765 sin DMA: busqueda terminada (hasta SENSE INTERRUPT
+	// STATUS), fase de ejecucion (EXM) y fase de resultado (comando en curso con
+	// DIO = 1); no mientras recibe el comando ni mientras busca el sector
+	int_o <= int_state[0] | int_state[1] | m_status[UPD765_MAIN_EXM] |
+	         (m_status[UPD765_MAIN_CB] & m_status[UPD765_MAIN_DIO]);
 
 	// Cabecera de pista generada para imagenes raw (aleste-lx-mist). Formato
 	// del Track-Info de EDSK: 0x14 N, 0x15 sectores, 0x16 GAP3, 0x17 relleno,

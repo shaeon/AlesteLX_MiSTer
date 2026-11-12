@@ -258,10 +258,7 @@ ya funcionaba en el core también con el VBlank (425 ciclos), pero siempre
 devolvía al usuario con las interrupciones activas; el bloqueo de la v5 lo
 evita.
 
-Pendiente: la diferencia del temporizador (en el emulador pide interrupción
-por la línea 6 del PIC; en el core la línea 6 está a 0 y la 4 lleva la
-interrupción del Gate Array) y la variante legacy (`F2xxh`) desde un programa
-del CPC.
+Pendiente: la variante legacy (`F2xxh`) desde un programa del CPC.
 
 ## LX-DOS
 
@@ -393,14 +390,24 @@ alguna pendiente y habilitada, así que el manejador tiene que borrarla.
 
 | Línea | Fuente |
 |---|---|
-| 0 | STORAGE: disquetera |
+| 0 | STORAGE: disquetera (la INT del uPD765, ver abajo) |
 | 1 | DMA_COM: fin de la DMA |
 | 2 | GPU: VBlank del vídeo nativo |
 | 3 | AUDIO: Magic Sound 2 |
 | 4 | LEGACY: interrupción del Gate Array (300 Hz) |
-| 6 | SYSTIMER: temporizador |
-| 7 | INPUT: teclado |
+| 6 | SYSTIMER: temporizador (dentro de `lx_sys.sv`) |
 | 7 | INPUT: hay eventos de teclado |
+
+La INT de la disquetera (también en el bit PB1 de la PPI, en el modo 520EX)
+sigue al uPD765 sin DMA, igual en el core y en el emulador: sube al terminar
+una búsqueda (hasta SENSE INTERRUPT STATUS), en la fase de ejecución y en la
+de resultado; no mientras recibe el comando ni mientras busca el sector.
+Prueba: `FDCINT.COM` (`dos/test/sys/fdcint.asm` de la BIOS).
+
+Diferencia conocida: en el core, la línea 4 (el contador del Gate Array, cada
+52 líneas del CRTC del CPC) sigue funcionando en modo nativo; el emulador solo
+simula ese CRTC en el modo 520EX, así que en nativo no la levanta. Ni la BIOS
+ni el LX-DOS la usan.
 
 ### Temporizador (página 0, 40-46)
 
