@@ -3,7 +3,8 @@
 //
 // Reparto de relojes acordado con hww (noviembre de 2026):
 // - 54 MHz (clk_bus, el del bus del Z80): los registros del Z80 (host_if, pagina
-//   MMIO 3: 0-2 GPU_ADDR, 3 COMMAND, 4 STATUS) y el nucleo de la GPU (gpu_top).
+//   MMIO 3: 0-2 GPU_ADDR, 3 COMMAND, 4 STATUS, 5 IRQ_CODE, que al leerlo
+//   reconoce la interrupcion) y el nucleo de la GPU (gpu_top).
 // - 108 MHz (clk_mem, el del arbitro de memoria): solo el lado del arbitro del
 //   puente, con la peticion registrada, para no anadir logica a las rutas
 //   arbitro -> SDRAM, que van justas de tiempo.
@@ -39,7 +40,8 @@ module lx_gpu (
     input  wire         mem_ack1_i
 );
     // ------------------------------------------------------------ 54 MHz
-    logic        gpu_start, gpu_reset, gpu_halted, gpu_error;
+    logic        gpu_start, gpu_reset, gpu_halted, gpu_error, gpu_irq_ack;
+    logic [7:0]  gpu_irq_code;
     logic [23:0] gpu_addr;
     logic [6:0]  gpu_halt_code;
 
@@ -50,7 +52,9 @@ module lx_gpu (
         .wb_dat_o(dat_o), .wb_ack_o(ack_o),
         .gpu_start_o(gpu_start), .gpu_reset_o(gpu_reset), .gpu_addr_o(gpu_addr),
         .gpu_halted_i(gpu_halted), .gpu_error_i(gpu_error),
-        .gpu_error_code_i({5'd0, gpu_halt_code})
+        .gpu_error_code_i({5'd0, gpu_halt_code}),
+        .gpu_irq_code_i(gpu_irq_code),
+        .gpu_irq_ack_o(gpu_irq_ack)
     );
 
     logic        wbm_cyc, wbm_stb, wbm_we, wbm_ack;
@@ -65,12 +69,12 @@ module lx_gpu (
         .gpu_start_i(gpu_start),
         .gpu_reset_i(gpu_reset),
         .gpu_addr_i(gpu_addr),
-        .irq_ack_i(gpu_start),          // host_if no tiene IRQ_CODE: un START nuevo la borra
+        .irq_ack_i(gpu_irq_ack),        // leer IRQ_CODE la reconoce (START y RESET tambien)
         .halted_o(gpu_halted),
         .error_o(gpu_error),
         .halt_code_o(gpu_halt_code),
         .irq_o(irq_o),
-        .irq_code_o(),
+        .irq_code_o(gpu_irq_code),
         .pc_o(),
         .wb_cyc_o(wbm_cyc), .wb_stb_o(wbm_stb), .wb_we_o(wbm_we),
         .wb_adr_o(wbm_adr), .wb_dat_o(wbm_dat_w),

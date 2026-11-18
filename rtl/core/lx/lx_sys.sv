@@ -19,8 +19,8 @@
 //   +8 CLEAR_HI  W
 // Las lineas se capturan por flanco de subida. INT se mantiene mientras haya
 // alguna pendiente y habilitada.
-// Lineas (lx_pic_controller.md de hww): 0 STORAGE, 1 DMA_COM, 2 GPU (VBlank),
-// 3 AUDIO, 4 LEGACY (interrupcion del Gate Array), 5 IPC, 6 SYSTIMER.
+// Lineas: 0 STORAGE (disquetera), 1 DMA_COM, 2 VBlank, 3 AUDIO (Magic Sound 2),
+// 4 LEGACY (interrupcion del Gate Array), 5 GPU (LX-GPU), 6 SYSTIMER, 7 teclado.
 //
 // TIMER: cuenta microsegundos.
 //   +0 CTRL      RW  bit 0 marcha, bit 1 periodico (si no, una sola vez)

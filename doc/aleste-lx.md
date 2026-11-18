@@ -367,11 +367,11 @@ BIOS, C40000 la memoria de vídeo del modo 16k1b.
 | 0 | FF0060-FF0061 | Reloj MC146818 (índice, dato) | rtl/core/cpc/rtc146818.sv |
 | 2 | FF0100-FF011F | Paleta | (vídeo del LX) |
 | 2 | FF0120-FF013F | CRTC | (vídeo del LX) |
+| 3 | FF0180-FF01FF | LX-GPU | rtl/core/lx/lx_gpu.sv (y `deps/lx-gpu-rtl` de la BIOS) |
 | 6 | FF0300-FF037F | DMA / blitter | rtl/core/lx/lx_dma.sv |
 | 7 | FF0380-FF03FF | Magic Sound 2 | rtl/core/lx/lx_ms2.sv |
 | 8 | FF0400-FF047F | Teclado | rtl/core/lx/lx_input.sv |
 | 9 | FF0480-FF04FF | Disquetera (uPD765) | rtl/core/cpc/u765.sv |
-| 8 | FF0400-FF047F | Teclado | rtl/core/lx/lx_input.sv |
 
 ### PIC (página 0, 00-08)
 
@@ -392,9 +392,10 @@ alguna pendiente y habilitada, así que el manejador tiene que borrarla.
 |---|---|
 | 0 | STORAGE: disquetera (la INT del uPD765, ver abajo) |
 | 1 | DMA_COM: fin de la DMA |
-| 2 | GPU: VBlank del vídeo nativo |
+| 2 | VBlank del vídeo nativo |
 | 3 | AUDIO: Magic Sound 2 |
 | 4 | LEGACY: interrupción del Gate Array (300 Hz) |
+| 5 | GPU: la instrucción IRQ de la LX-GPU (hasta leer IRQ_CODE) |
 | 6 | SYSTIMER: temporizador (dentro de `lx_sys.sv`) |
 | 7 | INPUT: hay eventos de teclado |
 
@@ -450,6 +451,24 @@ MSX-DOS del 520EX, o DSK/EDSK del CPC). Su interrupción va a la línea 0.
 | 00 | R | registro de estado principal (RQM, DIO, EXM, CB) |
 | 01 | RW | datos |
 | 02 | W | motor (D0) |
+
+### LX-GPU (página 3)
+
+La GPU de hww ([lx-gpu-rtl](https://github.com/hww/lx-gpu-rtl), submódulo
+`deps/lx-gpu-rtl` de la BIOS): un procesador de 16 bits con microcódigo y
+cuatro canales de píxeles (16, 8, 4, 2 y 1 bpp, LO8, HI8). El núcleo y sus
+registros van a 54 MHz, en el bus del Z80; solo la petición al árbitro de la
+SDRAM va a 108 MHz (puerto GPU del `memory_arbiter`, el de menos prioridad).
+
+| Puerto | | |
+|---|---|---|
+| 00-02 | RW | GPU_ADDR: dirección física del paquete [SIZE, START, palabras] |
+| 03 | W | COMMAND: 1 START (el cargador de la ROM copia el paquete y salta a START), 2 RESET |
+| 04 | R | STATUS: bit 7 parada, bits 6-0 código de error |
+| 05 | R | IRQ_CODE: código de la última instrucción IRQ; leerlo reconoce la interrupción (línea 5) |
+
+Pruebas (LX-DOS, `dos/test/gpu` de la BIOS; igual en el emulador): GPUTEST,
+GPULOOP, GPUCHW, GPUSPR y GPUIRQ.
 
 ### Reloj (página 0, 60h-61h)
 
@@ -534,6 +553,7 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 | DIR y MOD SLL1.STM con `mag-player.dsk` (`+dsk=`) | lista los 10 ficheros; carga SLL1.STM (82 KB, 169 sectores) y la toca |
 | MOD (`lx/test/LXDEMO.MOD`, de `tools/make_test_mod.py` de la BIOS) | `+mod=` lo carga como el OSD; MOD toca la melodía (E4, F4) y el bajo (C3), con la posición y la fila en la línea de estado |
 | dmatest | relleno 8x3, copia 4x2 y copia con transparente correctos, 4 IRQ |
+| GPUTEST, GPULOOP, GPUCHW, GPUSPR, GPUIRQ (`dos/test/gpu` de la BIOS) | la LX-GPU: relleno, bucles por hardware, canales en cada formato, sprite (CH0 → CH1), interrupción e IRQ_CODE; todas OK, igual que en el emulador |
 
 ## Pendiente
 
@@ -541,5 +561,3 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
   (E3-E9, EE, 7).
 - Teclado español (ahora la tabla es la de EE. UU.).
 - IPC (FF0020): en MiSTer el "MCU" podría ser el ARM por hps_io.
-- Acelerador gráfico con conversión de formatos de píxel (el blitter cubre
-  la copia de rectángulos).
