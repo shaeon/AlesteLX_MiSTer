@@ -16,9 +16,17 @@
 ROOT    := ..
 C       := $(ROOT)/rtl/core
 H       := $(ROOT)/rtl/hww/src
+# LX-GPU de hww: RTL en el submodulo de la BIOS (lx/aleste-xi-bios/deps/lx-gpu-rtl).
+# lx_gpu.sv le pasa a la GPU la ruta del cargador (ROM 0-31) relativa a la raiz del
+# proyecto: 'run' enlaza lx/ dentro de obj/. Sus modulos
+# incluyen "rtl/gpu_fmt_pkg.sv" (no es un paquete): -I con la raiz de lx-gpu-rtl.
+G       := $(ROOT)/lx/aleste-xi-bios/deps/lx-gpu-rtl
+GPU_SRCS := $(G)/rtl/core_alu.sv $(G)/rtl/core_regfile.sv $(G)/rtl/core_cond.sv \
+           $(G)/rtl/core_fetch.sv $(G)/rtl/core_rom.sv $(G)/rtl/ch_addr_gen.sv $(G)/rtl/ch_blender.sv \
+           $(G)/rtl/ch_cache.sv $(G)/rtl/ch_top.sv $(G)/rtl/host_if.sv $(G)/rtl/gpu_top.sv
 FLAGS   := --binary --timing -j 0 -Wno-fatal -Wno-lint -Wno-style -Wno-TIMESCALEMOD \
            -Wno-MULTIDRIVEN -Wno-UNOPTFLAT -Wno-INITIALDLY \
-           --top-module tb_lx -Mdir obj -DALESTE_LX $(DEFS)
+           --top-module tb_lx -Mdir obj -DALESTE_LX -I$(G) $(DEFS)
 SRCS    := $(H)/components/reset/reset_controller.sv \
            $(C)/sdram_wishbone.sv \
            $(C)/mc6845mod.sv \
@@ -44,7 +52,7 @@ SRCS    := $(H)/components/reset/reset_controller.sv \
            $(H)/components/interconnect/wishbone/wb_wdt_simple.sv \
            $(C)/tv80lx.v $(C)/mmu_native.sv \
            $(C)/vga_timing.sv $(C)/video_ctrl_vga.sv \
-           $(C)/mist_loader.sv $(C)/cpc/UM6845R.v $(C)/cpc/cpc_video.sv $(C)/cpc/kbd_520ex.sv $(C)/cpc/rtc146818.sv $(C)/cpc/magic_sound.sv $(C)/cpc/serial_mouse.sv $(C)/cpc/kempston_mouse.v $(C)/cpc/symbiface_mouse.v $(C)/cpc/multiplay_mouse.v $(C)/cpc/amx_mouse.v $(C)/cpc/tzxplayer.sv $(C)/cpc/u765.sv $(C)/YM2149.sv $(C)/lx/lx_sys.sv $(C)/lx/lx_ms2.sv $(C)/lx/lx_dma.sv $(C)/lx/lx_input.sv $(C)/aleste_lx_core.sv \
+           $(C)/mist_loader.sv $(C)/cpc/UM6845R.v $(C)/cpc/cpc_video.sv $(C)/cpc/kbd_520ex.sv $(C)/cpc/rtc146818.sv $(C)/cpc/magic_sound.sv $(C)/cpc/serial_mouse.sv $(C)/cpc/kempston_mouse.v $(C)/cpc/symbiface_mouse.v $(C)/cpc/multiplay_mouse.v $(C)/cpc/amx_mouse.v $(C)/cpc/tzxplayer.sv $(C)/cpc/u765.sv $(C)/YM2149.sv $(C)/lx/lx_sys.sv $(C)/lx/lx_ms2.sv $(C)/lx/lx_dma.sv $(C)/lx/lx_input.sv $(GPU_SRCS) $(C)/lx/lx_gpu.sv $(C)/aleste_lx_core.sv \
            sdram_model.sv
 
 all: run
@@ -53,7 +61,7 @@ obj/Vtb_lx: $(SRCS) tb_lx.sv
 	verilator $(FLAGS) $(SRCS) tb_lx.sv
 
 run: obj/Vtb_lx
-	cp -f $(H)/components/video/palette/*.mem $(C)/*.mem obj/ 2>/dev/null; cd obj && ./Vtb_lx +rom=$(abspath $(or $(ROM),../lx/build/LX.ROM)) $(PLUSARGS)
+	cp -f $(H)/components/video/palette/*.mem $(C)/*.mem obj/ 2>/dev/null; ln -sfn $(abspath $(ROOT)/lx) obj/lx; cd obj && ./Vtb_lx +rom=$(abspath $(or $(ROM),../lx/build/LX.ROM)) $(PLUSARGS)
 	-python3 -c "from PIL import Image; Image.open('obj/pantalla.ppm').save('obj/pantalla.png')" 2>/dev/null
 
 lint:

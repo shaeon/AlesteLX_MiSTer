@@ -1007,8 +1007,13 @@ u765 #(.CYCLES(FDC_CYCLES)) fdc (
 
 // ---- Modo LX: dispositivos de sistema en la pagina MMIO 0 (FF0000-FF007F):
 // PIC y temporizador (rtl/lx/lx_sys.sv). Solo en modo LX y con la MMU nativa.
-logic [7:0] lx_dat, ms2_dat, dma_dat, kin_dat;
-logic       lx_ack, ms2_ack, ms2_irq, dma_ack, dma_irq, kin_ack, kin_irq;
+logic [7:0] lx_dat, ms2_dat, dma_dat, kin_dat, gpu_dat;
+// LX-GPU: su puerto en el memory_arbiter (clk_system)
+logic [23:0] gpu_mem_addr;
+logic        gpu_mem_req, gpu_mem_we, gpu_mem_ack0, gpu_mem_ack1;
+logic [15:0] gpu_mem_wdat, gpu_mem_rdat;
+logic [1:0]  gpu_mem_sel;
+logic       lx_ack, ms2_ack, ms2_irq, dma_ack, dma_irq, kin_ack, kin_irq, gpu_ack, gpu_irq;
 // Reloj MC146818 en modo nativo: FF0060 indice, FF0061 dato (la RAM del reloj
 // por su puerta cmos_*, ver abajo). El resto de la pagina 0 es de lx_sys.
 wire rtcn_cs = lx_mode & ~legacy & (sys_adr[23:1] == 23'h7F8030);
@@ -1032,10 +1037,34 @@ lx_sys lx_system (
     .dat_i(sys_dat),
     .dat_o(lx_dat),
     .ack_o(lx_ack),
-    //       15..8   7 INPUT  6 (timer)  5 IPC  4 LEGACY  3 AUDIO  2 GPU        1 DMA  0 STORAGE
-    .irq_i({8'd0,   kin_irq,        1'b0,      1'b0,  cpc_int,  ms2_irq, lx_vbl_s[1], dma_irq, fdc_int}),
+    //       15..8   7 INPUT  6 (timer)  5 GPU     4 LEGACY  3 AUDIO  2 VBlank     1 DMA  0 STORAGE
+    .irq_i({8'd0,   kin_irq,        1'b0,      gpu_irq, cpc_int,  ms2_irq, lx_vbl_s[1], dma_irq, fdc_int}),
     .int_o(lx_int),
     .int_vec_o()
+);
+
+// LX-GPU de hww (lx/aleste-xi-bios/deps/lx-gpu-rtl) en la pagina MMIO 3
+// (FF0180-FF01FF): nucleo y registros a 54 MHz, puerto del arbitro a 108
+wire gpu_cs = lx_mode & ~legacy & (sys_adr[23:7] == 17'h1FE03);
+lx_gpu lx_gpu_unit (
+    .clk_bus(clk_bus),
+    .clk_mem(clk_system),
+    .rst(cpu_reset),
+    .cs_i(bus_req & gpu_cs),
+    .we_i(sys_we),
+    .adr_i(sys_adr[6:0]),
+    .dat_i(sys_dat),
+    .dat_o(gpu_dat),
+    .ack_o(gpu_ack),
+    .irq_o(gpu_irq),
+    .mem_addr_o(gpu_mem_addr),
+    .mem_req_o(gpu_mem_req),
+    .mem_we_o(gpu_mem_we),
+    .mem_dat_o(gpu_mem_wdat),
+    .mem_sel_o(gpu_mem_sel),
+    .mem_dat_i(gpu_mem_rdat),
+    .mem_ack0_i(gpu_mem_ack0),
+    .mem_ack1_i(gpu_mem_ack1)
 );
 
 // Magic Sound 2 en la pagina MMIO 7 (FF0380-FF03FF)
@@ -1102,6 +1131,15 @@ lx_input lx_keyboard (
 );
 `else
 wire lx_cs = 1'b0;
+wire gpu_cs = 1'b0;
+assign gpu_dat = 8'hFF;
+assign gpu_ack = 1'b0;
+assign gpu_irq = 1'b0;
+assign gpu_mem_addr = '0;
+assign gpu_mem_req = 1'b0;
+assign gpu_mem_we = 1'b0;
+assign gpu_mem_wdat = '0;
+assign gpu_mem_sel = 2'b00;
 wire kin_cs = 1'b0;
 assign kin_dat = 8'hFF;
 assign kin_ack = 1'b0;
@@ -1136,9 +1174,9 @@ wire leg_none = legacy & (sys_adr[23:16] == 8'hFF) & ~ga_cfg & ~ppi_cs & ~vc_gra
 logic none_ack;
 always_ff @(posedge clk_bus) none_ack <= bus_req & leg_none & ~none_ack;
 
-assign vid_ack            = vc_ack | ga_ack | ppi_ack | none_ack | cv_ack | fdc_ack | mot_ack | ext_ack | usart_ack | ga_rd_ack | ms_ack | cm_ack | lx_ack | ms2_ack | dma_ack | kin_ack | rtcn_ack;
-assign vid_grant          = vc_grant | (bus_req & (ga_cfg | ppi_cs | leg_none | crtc_cs | ga_pen | fdc_cs | mot_cs | ext_cs | usart_cs | ga_rd | ms_cs | cpcm_cs | lx_cs | ms2_cs | dma_cs | kin_cs | rtcn_cs));
-assign vid_dat_from_slave = ppi_cs ? ppi_dat : crtc_cs ? cv_dat : fdc_cs ? fdc_dat : usart_cs ? usart_dat : ga_rd ? ga_rd_dat : ms_cs ? ms_dat : cpcm_cs ? cpcm_dat : lx_cs ? lx_dat : ms2_cs ? ms2_dat : dma_cs ? dma_dat : kin_cs ? kin_dat : rtcn_cs ? rtcn_dat : leg_none ? 8'hFF : vc_dat;
+assign vid_ack            = vc_ack | ga_ack | ppi_ack | none_ack | cv_ack | fdc_ack | mot_ack | ext_ack | usart_ack | ga_rd_ack | ms_ack | cm_ack | lx_ack | ms2_ack | dma_ack | kin_ack | gpu_ack | rtcn_ack;
+assign vid_grant          = vc_grant | (bus_req & (ga_cfg | ppi_cs | leg_none | crtc_cs | ga_pen | fdc_cs | mot_cs | ext_cs | usart_cs | ga_rd | ms_cs | cpcm_cs | lx_cs | ms2_cs | gpu_cs | dma_cs | kin_cs | rtcn_cs));
+assign vid_dat_from_slave = ppi_cs ? ppi_dat : crtc_cs ? cv_dat : fdc_cs ? fdc_dat : usart_cs ? usart_dat : ga_rd ? ga_rd_dat : ms_cs ? ms_dat : cpcm_cs ? cpcm_dat : lx_cs ? lx_dat : ms2_cs ? ms2_dat : gpu_cs ? gpu_dat : dma_cs ? dma_dat : kin_cs ? kin_dat : rtcn_cs ? rtcn_dat : leg_none ? 8'hFF : vc_dat;
 
 // ---- Interrupciones del Gate Array: una cada 52 HSYNC; 2 HSYNC despues
 // del inicio del VSYNC el contador vuelve a 0 (y si iba por 32 o mas, hay
@@ -1232,6 +1270,14 @@ video_ctrl_vga #(
     // El video del LX no atiende la E/S CPC: en modo CPC la imagen sale de
     // cpc_video (temporizacion real). Le cede el puerto de video de la SDRAM.
     .cfg_native_i(1'b1),
+    .gpu_mem_addr(gpu_mem_addr),
+    .gpu_mem_req(gpu_mem_req),
+    .gpu_mem_we(gpu_mem_we),
+    .gpu_mem_wdat(gpu_mem_wdat),
+    .gpu_mem_sel(gpu_mem_sel),
+    .gpu_mem_rdat(gpu_mem_rdat),
+    .gpu_mem_ack0(gpu_mem_ack0),
+    .gpu_mem_ack1(gpu_mem_ack1),
     .ext_vid_sel(leg_m),
     .ext_vid_addr({8'h00, cpc_mem_addr}),
     .ext_vid_req(cpc_mem_req),

@@ -2,6 +2,7 @@
 // FICHERO GENERADO por tools/gen_rtl.py - no editar a mano.
 // Origen: aleste-lx/src/systems/aleste_video/video_ctrl.sv @ ?
 // Cambios: llhdmi -> vga_timing (salida VGA), sin clk_270m, clke_i del memory_arbiter a 1, wb_clke_i de la paleta conectado, config_27mhz.vh incluido en linea.
+// Despues, a mano (tools/gen_rtl.py no esta en el repo): puerto de la LX-GPU (gpu_mem_*) hasta el memory_arbiter.
 // ============================================================================
 `default_nettype none
 // Include configuration
@@ -115,6 +116,15 @@ module video_ctrl_vga #(
     // Конфигурационные сигналы
     input  logic        cfg_native_i,
     // Puerto de video de la SDRAM para el video CPC (clk_system) - tools/gen_rtl.py
+    // LX-GPU (rtl/core/lx/lx_gpu.sv): el puerto GPU del memory_arbiter, en clk_system
+    input  logic [23:0] gpu_mem_addr,
+    input  logic        gpu_mem_req,
+    input  logic        gpu_mem_we,
+    input  logic [15:0] gpu_mem_wdat,
+    input  logic [1:0]  gpu_mem_sel,
+    output logic [15:0] gpu_mem_rdat,
+    output logic        gpu_mem_ack0,
+    output logic        gpu_mem_ack1,
     input  logic        ext_vid_sel,
     input  logic [23:0] ext_vid_addr,
     input  logic        ext_vid_req,
@@ -342,14 +352,14 @@ module video_ctrl_vga #(
         .wb_grant_o(system2mem_grant),
 
         // GPU bus
-        .gpu_addr_i('0),
-        .gpu_req_i('0),
-        .gpu_we_i('0),
-        .gpu_dat_i('0),
-        .gpu_dat_o(),
-        .gpu_ack0_o(),
-        .gpu_ack1_o(),
-        .gpu_sel_i('0),
+        .gpu_addr_i(gpu_mem_addr),
+        .gpu_req_i(gpu_mem_req),
+        .gpu_we_i(gpu_mem_we),
+        .gpu_dat_i(gpu_mem_wdat),
+        .gpu_dat_o(gpu_mem_rdat),
+        .gpu_ack0_o(gpu_mem_ack0),
+        .gpu_ack1_o(gpu_mem_ack1),
+        .gpu_sel_i(gpu_mem_sel),
 
         // Memory Interface
         .sdram_addr_o(mem_addr_o),

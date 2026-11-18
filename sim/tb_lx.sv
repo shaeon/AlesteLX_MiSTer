@@ -257,7 +257,7 @@ module tb_lx;
             lat++;
             if (dut.z80_ack || dut.z80_err) begin
                 if (lat > max_lat) max_lat = lat;
-                if (dut.z80_err) n_err++;
+                if (dut.z80_err) begin n_err++; if (n_err <= 8) $display("   [%0t] error de bus %s %06h (Z80 %04h)", $time, dut.z80_we ? "W" : "R", dut.z80_adr, dut.z80_sys.z80_a); end
                 lat = 0;
             end
         end else lat = 0;

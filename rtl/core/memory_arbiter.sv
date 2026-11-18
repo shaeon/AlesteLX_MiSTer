@@ -2,6 +2,7 @@
 // FICHERO GENERADO por tools/gen_rtl.py - no editar a mano.
 // Origen: aleste-lx/src/systems/aleste_video/memory_arbiter.sv @ ?
 // Cambios: sdram_req_o con '<=' en todo el always_ff (Quartus error 10110); wb_enabled se quita al contestar (ack0), no en ack1; Calypso: mapa de memoria en 8 MB.
+// Despues, a mano (tools/gen_rtl.py no esta en el repo): en STATE_GPU_ACCESS las escrituras bajan sdram_req_o con ack0, como el Z80 (si no, el SDRAM repite la escritura).
 // ============================================================================
 // memory_arbiter.sv
 `default_nettype none
@@ -189,6 +190,12 @@ always_ff @(posedge clk_i) begin
             end
 
             {STATE_GPU_ACCESS, 3'b000}: begin
+                // Escrituras: la peticion cae con ack0, como en STATE_WB_ACCESS.
+                // El SDRAM da ack1 a la vez que vuelve a IDLE; si la peticion
+                // siguiera alta, empezaria otra escritura cuyos ack0/ack1
+                // llegarian al siguiente acceso (p. ej. del Z80).
+                if (sdram_ack0_i && saved_we)
+                    sdram_req_o <= 1'b0;
                 // После второго слова GPU готов к завершению операции
                 if (sdram_ack1_i) begin
                     //if (video_req_i) begin
