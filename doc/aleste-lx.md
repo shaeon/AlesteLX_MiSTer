@@ -213,13 +213,15 @@ pasar a legacy no hay bloqueo. La NMI no se tapa (en legacy la usa la Magic
 Sound). Pruebas unitarias: `sim/unit/mmu_native` (`test_exit_on_ret` y
 `test_int_hold`).
 
-**Cuándo cambia el mapa** (medido con `MAPTEST2.COM`, igual en el core y en el
-emulador): en una trampa (M1 de 0038h/0066h) el cambio se registra en el mismo
+**Cuándo cambia el mapa** (medido con la primera versión de `MAPTEST2.COM`,
+igual en el core y en el emulador): en una trampa (M1 de 0038h/0066h) el cambio se registra en el mismo
 M1, cuando la dirección de ese código de operación ya ha salido: el código de
 operación se lee con el mapa anterior; sus operandos, la pila y lo que sigue,
 con el nuevo. Por eso en 0038h tiene que haber el mismo código de operación en
 los dos mapas (en la prueba, el mismo `JP` en las dos páginas 0). La llamada
-`OUT (F2h),A` cambia en la propia escritura.
+`OUT (F2h),A` cambia en la propia escritura. En la salida, el `C9` del `RET`
+se lee con el mapa del supervisor, y la pila del `RET` y lo que sigue, con el
+del usuario (`MAPTEST.COM` y `MAPTEST2.COM` de ahora).
 
 **Prototipo** (`dos/test/sys/systest.asm`, `SYSTEST.COM` en
 `sd/LXDOS.DSK`):
