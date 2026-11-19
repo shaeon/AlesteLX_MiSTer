@@ -375,6 +375,36 @@ BIOS, C40000 la memoria de vídeo del modo 16k1b.
 | 8 | FF0400-FF047F | Teclado | rtl/core/lx/lx_input.sv |
 | 9 | FF0480-FF04FF | Disquetera (uPD765) | rtl/core/cpc/u765.sv |
 
+### Temporizador de 1 MHz (puertos F4h-F7h, en la MMU)
+
+Contador libre de 32 bits a 1 MHz (54 MHz / 54), puesto a 0 en el reset; el
+diseño es de hww. Lo contesta la propia MMU (`rtl/core/mmu_native.sv`), como
+F0h/F1h, sin ir al bus ni cambiar de página MMIO, y se lee también en modo
+usuario con el bloqueo de puertos (bit 4 del control). Solo lectura; en legacy
+no existe.
+
+| Puertos | Bits | Paso | Vuelta |
+|---|---|---|---|
+| F4h/F5h | 15-0 | 1 µs | 65,5 ms |
+| F5h/F6h | 23-8 | 256 µs | 16,8 s |
+| F6h/F7h | 31-16 | 65,5 ms | 71,6 min |
+
+**Copia de los 32 bits.** Una lectura de F4h-F7h copia el contador entero, y
+las siguientes leen esa copia mientras lleguen con **como mucho tres M1**
+desde la anterior: una instrucción en medio, contando el prefijo ED de
+`IN r,(C)`. Así `LD C,0F4h / IN L,(C) / INC C / IN H,(C) / INC C / IN E,(C) /
+INC C / IN D,(C)` deja en DEHL un valor coherente aunque el contador cambie a
+mitad. Con cuatro M1 o más (o una interrupción entre las lecturas), la
+siguiente lectura hace una copia nueva; para leer varios bytes sin que se
+cuele una interrupción, `DI`. Un intervalo de menos de 65 ms es la resta de
+dos lecturas de F4h/F5h (`SBC HL,DE`), aunque el contador haya dado la vuelta.
+
+Prueba unitaria: `test_timer` en `sim/unit/mmu_native`. En LX-DOS, `TIMTEST`
+(aleste-xi-bios, `dos/test/sys/timtest.asm`): 100 ms del temporizador del
+sistema son 186A0h µs, la copia se mantiene con un NOP en medio y se renueva
+con ocho, y en modo usuario con el bloqueo lee un valor entre los dos del
+supervisor.
+
 ### PIC (página 0, 00-08)
 
 Registros como en `wb_z80_pic.sv` de hww, en IM 1 (la CPU va a 0038h):

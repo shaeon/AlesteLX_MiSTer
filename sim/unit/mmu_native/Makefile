@@ -10,7 +10,7 @@
 #     ciclos de reposo tras cada escritura de E/S (la MMU la aplica dos flancos
 #     despues de soltar WR, como entre dos E/S de un Z80 real) y los dos
 #     valores esperados del control escritos con los bits nuevos.
-#   make        compila y pasa las 45 comprobaciones
+#   make        compila y pasa las 74 comprobaciones (con el temporizador)
 ROOT := ../../..
 all: obj_dir/Vmmu_native
 	./obj_dir/Vmmu_native | tail -5

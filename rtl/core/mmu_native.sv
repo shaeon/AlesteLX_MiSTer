@@ -142,11 +142,18 @@ module mmu_native (
     // По архитектуре: user+lock блокирует, supervisor или unlock разрешает
     wire port_access_grant = supervisor_mode || !reg_ctrl_user_lock;  // supervisor OR user-unlock
     
+    // Temporizador de 1 MHz (F4h-F7h): se lee tambien en modo usuario con el
+    // bloqueo de puertos (solo lectura y sin efectos, salvo la copia)
+    wire is_tmr_read = is_io_access && is_read &&
+                       reg_ctrl_native_mode &&
+                       (cpu_a[7:2] == 6'b111101);
+
     // Is this an MMU register port (D0-DF)
-    wire is_mmu_access = is_io_access && 
-                         addr_is_mmu_space &&
-                         reg_ctrl_native_mode &&       // Только в Native режиме
-                         port_access_grant;            
+    wire is_mmu_access = (is_io_access && 
+                          addr_is_mmu_space &&
+                          reg_ctrl_native_mode &&       // Только в Native режиме
+                          port_access_grant) ||
+                         is_tmr_read;
 
     // =========================================================================
     // 5. MMIO ACCESS (порты 00-BF) с защитой
@@ -336,6 +343,58 @@ module mmu_native (
         end 
     end
 
+    // =========================================================================
+    // Temporizador libre de 32 bits a 1 MHz (F4h-F7h, propuesta de hww)
+    // =========================================================================
+    // 54 MHz / 54. F4h = bits 7-0 ... F7h = bits 31-24; F4h/F5h, F5h/F6h y
+    // F6h/F7h son ventanas de 16 bits de 1 us, 256 us y 65,5 ms.
+    // Lectura atomica: una lectura de F4h-F7h hace una copia de los 32 bits y
+    // las siguientes leen esa copia mientras lleguen seguidas: con como mucho
+    // tres M1 desde la anterior (una instruccion en medio, contando el prefijo
+    // ED de IN r,(C): "in l,(c) / inc c / in h,(c)"). Con mas, la siguiente
+    // lectura hace una copia nueva. Una interrupcion entre dos lecturas tambien
+    // la renueva: para leer varios bytes sin cortes, con DI.
+    logic [5:0]  tmr_div;
+    logic [31:0] tmr_count, tmr_snap;
+    logic [2:0]  tmr_m1;                 // M1 desde la ultima lectura (satura en 4)
+    logic        tmr_rd_q, tmr_m1_q;
+
+    always_ff @(posedge clk) begin
+        if (reset) begin
+            tmr_div   <= 6'd0;
+            tmr_count <= 32'd0;
+            tmr_snap  <= 32'd0;
+            tmr_m1    <= 3'd4;
+            tmr_rd_q  <= 1'b0;
+            tmr_m1_q  <= 1'b0;
+        end else begin
+            if (tmr_div == 6'd53) begin
+                tmr_div   <= 6'd0;
+                tmr_count <= tmr_count + 32'd1;
+            end else
+                tmr_div <= tmr_div + 6'd1;
+            tmr_rd_q <= is_tmr_read;
+            tmr_m1_q <= m1_detected;
+            if (is_tmr_read && !tmr_rd_q) begin
+                if (tmr_m1 == 3'd4) tmr_snap <= tmr_count;
+                tmr_m1 <= 3'd0;
+            end else if (m1_detected && !tmr_m1_q && tmr_m1 != 3'd4)
+                tmr_m1 <= tmr_m1 + 3'd1;
+        end
+    end
+
+    // en el ciclo que hace la copia, el valor nuevo ya sale al bus
+    wire [31:0] tmr_val = (is_tmr_read && !tmr_rd_q && tmr_m1 == 3'd4) ? tmr_count : tmr_snap;
+    logic [7:0] tmr_byte;
+    always_comb begin
+        case (cpu_a[1:0])
+            2'd0: tmr_byte = tmr_val[7:0];
+            2'd1: tmr_byte = tmr_val[15:8];
+            2'd2: tmr_byte = tmr_val[23:16];
+            default: tmr_byte = tmr_val[31:24];
+        endcase
+    end
+
     logic [7:0] cpu_read_data_reg_mux;
 
     always_comb begin
@@ -345,6 +404,7 @@ module mmu_native (
             MMIO_PAGE_ADDR[4:0]:     cpu_read_data_reg_mux = reg_mmio_page;
             SYSCALL_ADDR[4:0]:       cpu_read_data_reg_mux = reg_syscall_function;
             CONTROL_REG_ADDR[4:0]:   cpu_read_data_reg_mux = {reg_control[7:4], int_hold, reg_control[2:0]};
+            5'b101??:                cpu_read_data_reg_mux = tmr_byte;   // F4h-F7h: temporizador
 
             // Слотовые регистры
             SLOT_SUPER_ADDR[4:0]:    cpu_read_data_reg_mux = reg_super_slot;

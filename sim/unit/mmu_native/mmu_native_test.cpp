@@ -558,6 +558,52 @@ void test_int_hold(MMUNativeTestUtils& utils) {
     utils.reset_pulse();
 }
 
+void test_timer(MMUNativeTestUtils& utils) {
+    std::cout << "\n=== TESTING 1 MHZ TIMER (F4h-F7h) ===" << std::endl;
+    // un M1 como los del Z80: M1 alto unos ciclos entre uno y otro
+    auto m1 = [&](int n) { for (int k = 0; k < n; k++) { utils.simulate_z80_m1_fetch(0x0100 + k); utils.wait_cycles(2); } };
+    auto rd32 = [&]() -> uint32_t {            // F4h..F7h, con un M1 entre lecturas
+        uint32_t v = 0;
+        for (int i = 0; i < 4; i++) {
+            if (i) m1(1);
+            v |= (uint32_t)utils.mmu_read_reg(0xF4 + i) << (8 * i);
+        }
+        return v;
+    };
+    utils.reset_pulse();
+    utils.mmu_write_reg(MMURegisterAddress::CONTROL, ControlRegister::NATIVE_MODE | ControlRegister::SUPERVISOR_MODE);
+    utils.wait_cycles(54 * 20);
+    uint32_t a = rd32();
+    utils.assert_true(a >= 19 && a < 200, "Counts microseconds since reset (54 cycles each)");
+    // lecturas seguidas: la misma copia aunque el contador avance
+    uint8_t lo1 = utils.mmu_read_reg(0xF4);
+    utils.wait_cycles(54 * 5);
+    uint8_t lo2 = utils.mmu_read_reg(0xF4);
+    utils.assert_equal(lo2, lo1, "Next read with no M1 between: same snapshot");
+    m1(3);
+    utils.wait_cycles(54 * 5);
+    uint8_t lo3 = utils.mmu_read_reg(0xF4);
+    utils.assert_equal(lo3, lo1, "Three M1 between (in l,(c) / inc c / in h,(c)): same snapshot");
+    m1(4);
+    uint8_t lo4 = utils.mmu_read_reg(0xF4);
+    utils.assert_true(lo4 != lo1, "Four M1 between: a new snapshot");
+    // 32 bits coherentes y crecientes
+    m1(4);
+    uint32_t b = rd32();
+    utils.wait_cycles(54 * 300);
+    m1(4);
+    uint32_t c = rd32();
+    utils.assert_true(c > b && c - b >= 300 && c - b < 400, "300 us later: +300 us (plus the reads)");
+    // modo usuario con el bloqueo de puertos: el temporizador se sigue leyendo
+    utils.mmu_write_reg(MMURegisterAddress::CONTROL, ControlRegister::NATIVE_MODE | ControlRegister::MMIO_USERLOCK);
+    utils.exit_to_user();
+    utils.assert_equal(utils.get_supervisor_mode(), 0, "User mode with the port lock");
+    m1(4);
+    uint32_t d = rd32();
+    utils.assert_true(d > c, "User mode with the lock: F4h-F7h readable");
+    utils.reset_pulse();
+}
+
 void test_hardware_trap(MMUNativeTestUtils& utils) {
     std::cout << "\n=== TESTING HARDWARE TRAP ===" << std::endl;
     
@@ -842,6 +888,7 @@ int main(int argc, char** argv) {
     test_exit_on_ret(utils);
     test_int_hold(utils);
     test_hardware_trap(utils);
+    test_timer(utils);
     
     utils.print_test_results();
     
