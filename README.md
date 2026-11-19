@@ -8,7 +8,9 @@ completed: PIC and system timer, Magic Sound 2 (4 DMA sample channels at
 drivers, an 80x25 console and a small monitor.
 
 Copy the `.rbf` to `_Computer/` and `sd/LX.ROM` to `games/AlesteLX/boot.rom`;
-`sd/LXDOS.DSK` is the LX-DOS boot floppy.
+`sd/LXDOS.DSK` is the LX-DOS boot floppy; `sd/MAGSONGS.DSK` has MAG (a tribute
+to the 520EX Magic Sound player, drawn by the LX-GPU) and its five songs, for
+drive B: (`MAG B:CHRUSH`).
 
 The BIOS, LX-DOS and their tools live in hww's repository, which this core
 uses as a submodule (`lx/aleste-xi-bios`). `sh lx/build.sh` builds them with

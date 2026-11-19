@@ -588,6 +588,7 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 | MOD (`lx/test/LXDEMO.MOD`, de `tools/make_test_mod.py` de la BIOS) | `+mod=` lo carga como el OSD; MOD toca la melodía (E4, F4) y el bajo (C3), con la posición y la fila en la línea de estado |
 | dmatest | relleno 8x3, copia 4x2 y copia con transparente correctos, 4 IRQ |
 | GPUTEST, GPULOOP, GPUCHW, GPUSPR, GPUIRQ (`dos/test/gpu` de la BIOS) | la LX-GPU: relleno, bucles por hardware, canales en cada formato, sprite (CH0 → CH1), interrupción e IRQ_CODE; todas OK, igual que en el emulador |
+| MAG AXELF (`dos/test/mag` de la BIOS, en `sd/LXDOS.DSK`; las cinco canciones en `sd/MAGSONGS.DSK`) | homenaje al MAG del 520EX: título al doble con degradado, estrellas y medidores dibujados por la LX-GPU a 50 cuadros por segundo; igual que en el emulador, y fluido en la placa |
 
 ## Pendiente
 
