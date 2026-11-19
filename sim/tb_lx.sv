@@ -43,6 +43,19 @@ module tb_lx;
     wire        hs, vs, hb, vb;
     wire        busy, overflow, timeout, refreshing, cpu_running, cpu_halted;
 
+    // ---- Reset del menu: +rst_ms=N lo pulsa 1 ms a los N ms
+    logic user_rst = 1'b0;
+    initial begin
+        int r_ms;
+        if ($value$plusargs("rst_ms=%d", r_ms)) begin
+            #(r_ms * 1ms);
+            $display("[%0t] reset del menu", $time);
+            @(posedge clk_bus) user_rst = 1'b1;
+            #1ms;
+            @(posedge clk_bus) user_rst = 1'b0;
+        end
+    end
+
     // ---- Teclado: +type=TEXTO escribe a partir de +type_ms (por defecto 120 ms)
     //      ('|' = Enter, '~' = ESC, '_' = espacio; teclado de EE. UU., minusculas)
     logic       k_strobe = 0, k_pressed = 0;
@@ -195,7 +208,7 @@ module tb_lx;
         .sdram_dq_clk(clk_dq),
 `endif
         .clk_system, .clk_bus, .clk_pixel, .pll_locked, .clk_vid,
-        .user_reset(1'b0), .boot_mode(2'd0),
+        .user_reset(user_rst), .boot_mode(2'd0),
         .key_strobe(k_strobe), .key_pressed(k_pressed), .key_extended(1'b0), .key_code(k_code),
         .fdc_fast(fdc_fast), .fdc_one_drive(1'b0),
         .mist_rtc(64'h40_01_26_11_02_21_05_30),   // lunes 2-11-2026 21:05:30 (BCD)

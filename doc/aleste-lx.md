@@ -456,7 +456,9 @@ MSX-DOS del 520EX, o DSK/EDSK del CPC). Su interrupción va a la línea 0.
 
 La GPU de hww ([lx-gpu-rtl](https://github.com/hww/lx-gpu-rtl), submódulo
 `deps/lx-gpu-rtl` de la BIOS): un procesador de 16 bits con microcódigo y
-cuatro canales de píxeles (16, 8, 4, 2 y 1 bpp, LO8, HI8). El núcleo y sus
+cuatro canales de píxeles (16, 8, 4, 2 y 1 bpp). Los píxeles van en el orden
+en que los lee el vídeo: los bytes por dirección y, dentro de cada byte,
+desde los bits altos (en 8 bpp, el píxel i es el byte i). El núcleo y sus
 registros van a 54 MHz, en el bus del Z80; solo la petición al árbitro de la
 SDRAM va a 108 MHz (puerto GPU del `memory_arbiter`, el de menos prioridad).
 
