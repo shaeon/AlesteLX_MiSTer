@@ -12,7 +12,8 @@
 // de conmutadores (peticion y respuesta) sin sincronizadores, y Quartus analiza
 // los caminos entre los dos dominios.
 //
-// El puerto GPU del arbitro: direccion en bytes, datos de 16 bits, sel = 11;
+// El puerto GPU del arbitro: direccion en bytes, datos de 16 bits, sel = bytes
+// que escribe la GPU (las lecturas, 11);
 // ack0 trae la primera palabra (lecturas en rafaga de 2) y ack1 marca el final
 // (las escrituras son de una palabra). La peticion cae en el mismo ciclo de ack1:
 // si siguiera alta, el arbitro repetiria el acceso.
@@ -60,6 +61,7 @@ module lx_gpu (
     logic        wbm_cyc, wbm_stb, wbm_we, wbm_ack;
     logic [23:0] wbm_adr;
     logic [15:0] wbm_dat_w, wbm_dat_r;
+    logic [1:0]  wbm_sel;
 
     // el cargador de la ROM, visto desde el directorio del proyecto (Quartus);
     // la simulacion enlaza lx/ en su directorio de trabajo
@@ -77,7 +79,7 @@ module lx_gpu (
         .irq_code_o(gpu_irq_code),
         .pc_o(),
         .wb_cyc_o(wbm_cyc), .wb_stb_o(wbm_stb), .wb_we_o(wbm_we),
-        .wb_adr_o(wbm_adr), .wb_dat_o(wbm_dat_w),
+        .wb_adr_o(wbm_adr), .wb_dat_o(wbm_dat_w), .wb_sel_o(wbm_sel),
         .wb_dat_i(wbm_dat_r), .wb_ack_i(wbm_ack)
     );
 
@@ -85,6 +87,7 @@ module lx_gpu (
     logic        req_tgl, ack_seen, pending, ack_r;
     logic [23:0] adr_q;
     logic        we_q;
+    logic [1:0]  sel_q;
     logic [15:0] datw_q, datr_q;
     logic        ack_tgl;                 // del dominio de 108 MHz
     logic [15:0] datr_m;                  // del dominio de 108 MHz
@@ -97,6 +100,7 @@ module lx_gpu (
             if (wbm_cyc && wbm_stb && !pending && !ack_r) begin
                 adr_q   <= wbm_adr;
                 we_q    <= wbm_we;
+                sel_q   <= wbm_we ? wbm_sel : 2'b11;
                 datw_q  <= wbm_dat_w;
                 req_tgl <= ~req_tgl;
                 pending <= 1'b1;
@@ -114,7 +118,7 @@ module lx_gpu (
     // ------------------------------------------------------------ 108 MHz
     // lado del arbitro: la peticion sale de registros (mem_req_o y los datos)
     logic req_seen, busy;
-    assign mem_sel_o = 2'b11;
+    assign mem_sel_o = sel_q;
 
     always_ff @(posedge clk_mem) begin
         if (rst) begin
