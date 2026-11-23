@@ -49,6 +49,7 @@ module memory_arbiter (
     input  logic        sdram_ack0_i,
     input  logic        sdram_ack1_i,
     output logic [1:0]  sdram_sel_o,
+    output logic        sdram_same_o,    // misma fila y banco que la peticion anterior
 
     // Debug outputs
     output logic [1:0]  debug_state_o,
@@ -85,6 +86,16 @@ end
 // disposicion que el original: fila con los bits bajos, columna con los altos
 wire [21:0] calypso_word = {calypso_byte[22:21], calypso_byte[13:2], calypso_byte[20:14], calypso_byte[1]};
 `endif
+// Fila de una direccion con el reparto de sdram_addr_o (no CALYPSO), y la
+// ultima fila pedida en cada banco: si coincide, el controlador (OPEN_PAGE)
+// la tiene abierta salvo que un refresco la haya cerrado, y puede dar la
+// orden sin comparar filas (sdram_same_o).
+function automatic logic [11:0] row_of(input logic [23:0] a);
+    return {a[23:18], a[15:10]};
+endfunction
+logic [11:0] last_row [4];
+logic        same_q;
+assign sdram_same_o = same_q;
 logic [15:0] saved_data_wr;
 logic [7:0]  saved_data_rd; // delay for slower bus
 logic saved_we;
@@ -104,6 +115,8 @@ always_ff @(posedge clk_i) begin
     if (rst) begin
         current_state <= STATE_IDLE;
         saved_addr <= 24'b0;
+        for (int i = 0; i < 4; i++) last_row[i] <= 12'hFFF;
+        same_q <= 1'b0;
         saved_data_wr <= 16'd0;
         saved_data_rd <= 8'd0;
         saved_we <= 1'b0;
@@ -123,12 +136,16 @@ always_ff @(posedge clk_i) begin
                 if (video_req_i) begin
                     current_state <= STATE_VIDEO_READ;
                     saved_addr <= video_addr_i;
+                    last_row[video_addr_i[17:16]] <= row_of(video_addr_i);
+                    same_q <= row_of(video_addr_i) == last_row[video_addr_i[17:16]];
                     saved_we <= 1'b0;
                     saved_sel <= 2'b11;
                     sdram_req_o <= 1'b1;
                 end else if (wb_enabled && wb_req) begin
                     current_state <= STATE_WB_ACCESS;
                     saved_addr <= wb_adr_i;
+                    last_row[wb_adr_i[17:16]] <= row_of(wb_adr_i);
+                    same_q <= row_of(wb_adr_i) == last_row[wb_adr_i[17:16]];
                     saved_we <= wb_we_i;
                     saved_data_wr <= {wb_dat_i, wb_dat_i};
                     saved_sel <= wb_adr_i[0] ? 2'b10 : 2'b01;
@@ -136,6 +153,8 @@ always_ff @(posedge clk_i) begin
                 end else if (gpu_req_i) begin
                     current_state <= STATE_GPU_ACCESS;
                     saved_addr <= gpu_addr_i;
+                    last_row[gpu_addr_i[17:16]] <= row_of(gpu_addr_i);
+                    same_q <= row_of(gpu_addr_i) == last_row[gpu_addr_i[17:16]];
                     saved_we <= gpu_we_i;
                     saved_data_wr <= gpu_dat_i;
                     saved_sel <= gpu_sel_i;
@@ -257,7 +276,9 @@ always_comb begin
     sdram_sel_o = 2'b00;
 
 
-    if (current_state != STATE_IDLE) begin
+    // Las salidas al controlador no dependen del estado: sin peticion las
+    // ignora, y asi la ruta hasta SDRAM_A es mas corta (108 MHz).
+    begin
         // Всегда выставляем запрос к SDRAM в активном состоянии
         // 24 result bits for 32MB memory, ignores a0
 `ifdef CALYPSO
@@ -271,10 +292,19 @@ always_comb begin
         // (en modo nativo, mas de 1-2 MB por region se repetiria)
         sdram_addr_o = {2'b00, calypso_word};
 `else
+        // Palabra de 16 bits = banco (2) + fila (13) + columna (9), para el
+        // controlador con filas abiertas (OPEN_PAGE): la columna son los bits
+        // bajos, asi que las palabras seguidas comparten fila (1 KB), y el
+        // banco son los dos bits bajos de la pagina de 64 KB (addr[17:16]):
+        // paginas consecutivas caen en bancos distintos (C4 -> 0, C5 -> 1,
+        // C6 -> 2, C7 -> 3), y una copia entre dos de ellas mantiene abiertas
+        // las dos filas. El original ponia la fila en los bits bajos para que
+        // el barrido del video refrescara la memoria; ahora el refresco es
+        // explicito (aleste_lx_core). col[0] = addr[1] como antes (rafaga).
         sdram_addr_o = {
-            saved_addr[23:22],                     // BANK 2 bits 
-            1'b0, saved_addr[13:2],                // ROW 13 bits (half of memory is unused)
-            saved_addr[21:14], saved_addr[1]      // COL  9 bits (сохраняем для burst)
+            saved_addr[17:16],                       // BANK
+            1'b0, saved_addr[23:18], saved_addr[15:10], // ROW (la mitad de la memoria sin usar)
+            saved_addr[9:1]                          // COL
         };
 `endif
         //sdram_addr_o = saved_addr;

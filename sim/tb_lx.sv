@@ -236,7 +236,7 @@ module tb_lx;
 
     // Byte del bus -> palabra del modelo (reparto de memory_arbiter + sdram_wishbone)
     function automatic logic [7:0] peek(input logic [23:0] a);
-        int unsigned k = (int'(a[23:22]) << 22) | (int'({1'b0, a[13:2]}) << 9) | int'({a[21:14], a[1]});
+        int unsigned k = (int'(a[17:16]) << 22) | (int'({1'b0, a[23:18], a[15:10]}) << 9) | int'(a[9:1]);
         logic [15:0] w = sdram.mem.exists(k) ? sdram.mem[k] : 16'h0000;
         return a[0] ? w[15:8] : w[7:0];
     endfunction

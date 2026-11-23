@@ -45,6 +45,7 @@ module sdram_model #(
     int        row    [4];
     realtime   t_act  [4];
     realtime   t_ready[4];      // cuando el banco puede recibir ACTIVE (precarga terminada)
+    realtime   t_wr[4];         // ultima escritura en el banco (tWR antes de PRECHARGE)
     realtime   t_ref = -1.0e9;
 
     // Registro de modo
@@ -75,7 +76,7 @@ module sdram_model #(
 
     initial begin
         dq_out = 16'h0; dq_out_oe = 0;
-        foreach (open_[i]) begin open_[i] = 0; t_ready[i] = 0; t_act[i] = -1.0e9; end
+        foreach (open_[i]) begin open_[i] = 0; t_ready[i] = 0; t_act[i] = -1.0e9; t_wr[i] = -1.0e9; end
     end
 
     wire [2:0] cmd = {nras, ncas, nwe};
@@ -128,7 +129,9 @@ module sdram_model #(
                         end
                     end else begin
                         n_wr++;
+                        t_wr[b] = now;
                         if (!dq_in_oe) err("WRITE sin dato en DQ");
+                        if (rdq.size() != 0) err("WRITE con datos de una lectura aun en DQ");
                         begin
                             int unsigned k = key(b, row[b], col);
                             logic [15:0] w = mem.exists(k) ? mem[k] : 16'h0000;
@@ -148,6 +151,7 @@ module sdram_model #(
                     for (int i = 0; i < 4; i++)
                         if ((a[10] || i == b) && open_[i]) begin
                             if (now - t_act[i] < T_RAS) err($sformatf("PRECHARGE banco %0d: tRAS %0.1f < %0.1f", i, now - t_act[i], T_RAS));
+                            if (now - t_wr[i] < T_WR) err($sformatf("PRECHARGE banco %0d: tWR %0.1f < %0.1f", i, now - t_wr[i], T_WR));
                             open_[i] = 0; t_ready[i] = now + T_RP;
                         end else if (a[10] || i == b) begin
                             if (t_ready[i] < now + T_RP) t_ready[i] = now + T_RP;

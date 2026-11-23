@@ -1222,6 +1222,7 @@ logic [23:0] video2mem_addr;
 logic [15:0] video2mem_data_out, video2mem_data_in;
 logic        video2mem_we, video2mem_req, video2mem_ack0, video2mem_ack1;
 logic [1:0]  video2mem_sel;
+logic        video2mem_same;
 
 video_ctrl_vga #(
     .SDRAM_ADDR_WIDTH(24),
@@ -1253,6 +1254,7 @@ video_ctrl_vga #(
     .mem_ack0_i(video2mem_ack0),
     .mem_ack1_i(video2mem_ack1),
     .mem_sel_o(video2mem_sel),
+    .mem_same_o(video2mem_same),
 
     .vga_rgb(vga_rgb),
     .vga_hs(vga_hs),
@@ -1320,7 +1322,15 @@ always_ff @(posedge clk_system) begin
     else if (idle_cnt != 2'd3)
         idle_cnt <= idle_cnt + 2'd1;
 end
+`ifdef CALYPSO
 wire refresh_go = refresh_req && (idle_cnt >= IDLE_MIN);
+`else
+// MiSTer: el controlador va con filas abiertas (OPEN_PAGE) y cierra las filas
+// y espera los tiempos el mismo antes del REFRESH, que ademas tiene prioridad.
+// No hace falta esperar ciclos en IDLE (con la GPU escribiendo seguido podria
+// no haberlos nunca).
+wire refresh_go = refresh_req;
+`endif
 
 always_ff @(posedge clk_system) begin
     if (mem_reset) begin
@@ -1358,7 +1368,8 @@ sdram_wishbone #(
     .CLK_FREQ(108_000_000),
     .WB_ADDR_WIDTH(24),
     .WB_DATA_WIDTH(16),
-    .T_RC(5'd7)
+    .T_RC(5'd7),
+    .OPEN_PAGE(1)
 ) sdram_ctrl (
 `endif
     .wb_clk_i(clk_system),
@@ -1376,6 +1387,7 @@ sdram_wishbone #(
     .wb_dat_i(video2mem_data_out),
     .wb_dat_o(video2mem_data_in),
     .wb_sel_i(video2mem_sel),
+    .wb_same_i(video2mem_same),
     .wb_refresh_i(refresh_go),
 
     .SDRAM_DQ_I(sdram_dq_i),

@@ -96,6 +96,7 @@ module video_ctrl_vga #(
     input  logic        mem_ack0_i,
     input  logic        mem_ack1_i,
     output logic [1:0]  mem_sel_o,
+    output logic        mem_same_o,     // misma fila que la peticion anterior (controlador OPEN_PAGE)
     
     // Salida VGA (sustituye a la salida TMDS del original)
     output logic [11:0] vga_rgb,
@@ -370,6 +371,7 @@ module video_ctrl_vga #(
         .sdram_ack0_i(mem_ack0_i),
         .sdram_ack1_i(mem_ack1_i),
         .sdram_sel_o(mem_sel_o),
+        .sdram_same_o(mem_same_o),
 
         .debug_state_o(debug_mem_arbiter_state),
         .debug_wb_active_o(debug_mem_wb_active),

@@ -1,7 +1,7 @@
 // ============================================================================
 // FICHERO GENERADO por tools/gen_rtl.py - no editar a mano.
 // Origen: aleste-lx/src/components/memory/sdram/sdram_wishbone.sv @ 4d29892
-// Cambios: con SDRAM_DQ_REG, dato de lectura registrado en el pin y ack de lectura un ciclo despues (MiSTer).
+// Cambios: OPEN_PAGE (filas abiertas, a mano). Con SDRAM_DQ_REG, dato de lectura registrado en el pin y ack de lectura un ciclo despues (MiSTer).
 // ============================================================================
 // Simple SDRAM controller for Tang 20k
 // nand2mario
@@ -55,7 +55,8 @@ module sdram_wishbone #(
 
     // Burst mode settings
     parameter [2:0] BURST_LEN = 3'd2,  // burst length 1
-    parameter BURST_MODE = 1'b1        // sequential
+    parameter BURST_MODE = 1'b1,       // sequential
+    parameter OPEN_PAGE  = 0           // 1: rows stay open (see g_open_page)
 )
 (
     // SDRAM Physical Interface
@@ -86,6 +87,7 @@ module sdram_wishbone #(
     input  logic [WB_DATA_WIDTH-1:0]    wb_dat_i,
     output logic [WB_DATA_WIDTH-1:0]    wb_dat_o,
     input  logic [WB_DATA_WIDTH/8-1:0]  wb_sel_i,
+    input  logic                        wb_same_i,   // OPEN_PAGE: same bank and row as the previous request
     output logic                        wb_busy_o,   // 0: ready for next command
     input  logic                        wb_refresh_i,
     
@@ -146,6 +148,7 @@ assign wr = wb_cyc_i && wb_stb_i &&  wb_we_i;
 assign addr = wb_adr_i[WB_ADDR_WIDTH-1:0];
 
 // ========== FSM  ДЛЯ IS42S16160B ==========
+generate if (!OPEN_PAGE) begin : g_closed_page
 always @(posedge wb_clk_i) begin
     if (wb_rst_i) begin
         busy <= 1'b1;
@@ -316,6 +319,234 @@ always @(posedge wb_clk_i) begin
         endcase
     end
 end
+end else begin : g_open_page
+
+// ============================================================================
+// OPEN_PAGE = 1 (Aleste LX on MiSTer, by hand, not from gen_rtl.py):
+// rows stay open, one per bank. A request to the open row of its bank is
+// a READ/WRITE straight away; another row costs PRECHARGE + ACTIVE. No
+// auto-precharge. Timing is kept with per-bank counters of clock edges since
+// the last ACTIVE / PRECHARGE and global ones since the last READ / WRITE.
+// REFRESH has priority: PRECHARGE ALL when needed, then AUTO REFRESH, so the
+// caller does not have to wait for idle cycles any more.
+// A write is acknowledged (ack0, ack1) one and two cycles after its command;
+// the controller is free again right after. A read keeps the timing of the
+// closed-page controller from its READ command on (BL 4, only 2 words used).
+// ============================================================================
+`ifdef SDRAM_DQ_CLK
+localparam [4:0] RD_OFF = 5'd2;
+`elsif SDRAM_DQ_REG
+localparam [4:0] RD_OFF = 5'd1;
+`else
+localparam [4:0] RD_OFF = 5'd0;
+`endif
+localparam [3:0] C_RCD = 4'd2;            // ACTIVE -> READ/WRITE
+localparam [3:0] C_RAS = 4'd5;            // ACTIVE -> PRECHARGE (42 ns)
+localparam [3:0] C_RP  = 4'd2;            // PRECHARGE -> ACTIVE/REFRESH
+localparam [3:0] C_RC  = 4'd7;            // ACTIVE -> ACTIVE same bank, REFRESH -> ACTIVE
+localparam [3:0] C_RRD = 4'd2;            // ACTIVE -> ACTIVE other bank
+localparam [3:0] C_WR  = 4'd3;            // WRITE -> PRECHARGE (tWR 12 ns + margin)
+localparam [3:0] C_RD  = 4'd6;            // READ -> WRITE/PRECHARGE (burst of 4 off the bus)
+
+logic [3:0]  s_act [4];                   // edges since ACTIVE (saturating)
+logic [3:0]  s_pre [4];                   // edges since PRECHARGE
+logic [3:0]  s_act_any, s_wr, s_rd, s_ref;
+logic [3:0]  open_v;
+logic [ROW_WIDTH-1:0] open_row [4];
+
+wire [1:0]           a_bank = addr[BANK_WIDTH+COL_WIDTH+ROW_WIDTH-1 : COL_WIDTH+ROW_WIDTH];
+wire [ROW_WIDTH-1:0] a_row  = addr[COL_WIDTH+ROW_WIDTH-1 -: ROW_WIDTH];
+wire [COL_WIDTH-1:0] a_col  = addr[COL_WIDTH-1:0];
+
+// Fast path: the arbiter says the request has the bank and row of the
+// previous one (wb_same_i, compared when it latched it). That row is still
+// open unless a refresh closed it, so open_v[bank] is enough and the command
+// goes out in the first cycle.
+// Other requests: the row compare is registered, so the decision is taken
+// one cycle after the request shows up (the arbiter holds it), and never
+// right after a PRECHARGE/ACTIVE/REFRESH of ours, whose effect the registered
+// flags would not see yet. Doing the full compare in the first cycle missed
+// 108 MHz by 1.5 ns (arbiter -> compare -> SDRAM_A I/O register).
+logic hit_q, open_q, req_q, cmd_now;
+logic all_closed, pre_ok_all, ref_ok;
+// cmd_now: this edge issues PRECHARGE / ACTIVE / REFRESH from IDLE
+always_comb begin
+    cmd_now = 1'b0;
+    if (state == IDLE) begin
+        if (wb_refresh_i)
+            cmd_now = (!all_closed && pre_ok_all) || (all_closed && ref_ok);
+        else if ((rd | wr) && req_q && !hit_q && !(wb_same_i && open_v[a_bank]))
+            cmd_now = open_q ? (s_act[a_bank] >= C_RAS && s_wr >= C_WR && s_rd >= C_RD)
+                             : (s_pre[a_bank] >= C_RP && s_act[a_bank] >= C_RC &&
+                                s_act_any >= C_RRD && s_ref >= C_RC);
+    end
+end
+
+always_comb begin
+    all_closed = (open_v == 4'b0000);
+    pre_ok_all = (s_wr >= C_WR) && (s_rd >= C_RD);
+    ref_ok     = (s_ref >= C_RC);
+    for (int i = 0; i < 4; i++) begin
+        if (open_v[i] && s_act[i] < C_RAS) pre_ok_all = 1'b0;
+        if (s_pre[i] < C_RP || s_act[i] < C_RC) ref_ok = 1'b0;
+    end
+end
+
+always @(posedge wb_clk_i) begin
+    if (wb_rst_i) begin
+        busy <= 1'b1;
+        dq_oen <= 1'b0;
+        SDRAM_DQM <= 2'b11;
+        state <= INIT;
+        wb_ack0 <= 0;
+        wb_ack1 <= 0;
+        cycle <= 0;
+        SDRAM_A <= 0;
+        SDRAM_BA <= 0;
+        {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_NOP;
+        open_v <= 4'b0000;
+        for (int i = 0; i < 4; i++) begin
+            s_act[i] <= 4'hF; s_pre[i] <= 4'hF; open_row[i] <= '0;
+        end
+        s_act_any <= 4'hF; s_wr <= 4'hF; s_rd <= 4'hF; s_ref <= 4'hF;
+        hit_q <= 1'b0; open_q <= 1'b0; req_q <= 1'b0;
+    end else begin
+        cycle <= (cycle == 5'd31) ? 5'd31 : cycle + 5'd1;
+        wb_ack0 <= 1'b0;
+        wb_ack1 <= 1'b0;
+        {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_NOP;
+        hit_q  <= open_v[a_bank] && (open_row[a_bank] == a_row);
+        open_q <= open_v[a_bank];
+        req_q  <= (rd | wr) && (state == IDLE) && !cmd_now;
+        for (int i = 0; i < 4; i++) begin
+            if (s_act[i] != 4'hF) s_act[i] <= s_act[i] + 4'd1;
+            if (s_pre[i] != 4'hF) s_pre[i] <= s_pre[i] + 4'd1;
+        end
+        if (s_act_any != 4'hF) s_act_any <= s_act_any + 4'd1;
+        if (s_wr  != 4'hF) s_wr  <= s_wr  + 4'd1;
+        if (s_rd  != 4'hF) s_rd  <= s_rd  + 4'd1;
+        if (s_ref != 4'hF) s_ref <= s_ref + 4'd1;
+
+        casez ({state, cycle})
+            {INIT, 5'b?????}: if (cfg_now) begin
+                state <= CONFIG;
+                cycle <= 0;
+            end
+            {CONFIG, 5'd0}: begin
+                {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_PreCharge;
+                SDRAM_A[10] <= 1'b1;
+            end
+            {CONFIG, T_RP}: begin
+                {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_AutoRefresh;
+            end
+            {CONFIG, T_RP+T_RC}: begin
+                {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_AutoRefresh;
+            end
+            {CONFIG, T_RP+T_RC+T_RC}: begin
+                {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_SetModeReg;
+                SDRAM_A <= MODE_REG;
+            end
+            {CONFIG, T_RP+T_RC+T_RC+T_MRD}: begin
+                state <= IDLE;
+                busy <= 1'b0;
+            end
+
+            {IDLE, 5'b?????}: begin
+                if (wb_refresh_i) begin
+                    if (!all_closed) begin
+                        if (pre_ok_all) begin
+                            {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_PreCharge;
+                            SDRAM_A[10] <= 1'b1;                    // all banks
+                            for (int i = 0; i < 4; i++)
+                                if (open_v[i]) s_pre[i] <= 4'd1;
+                            open_v <= 4'b0000;
+                        end
+                    end else if (ref_ok) begin
+                        {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_AutoRefresh;
+                        s_ref <= 4'd1;
+                        state <= REFRESH;
+                        cycle <= 5'd1;
+                        busy  <= 1'b1;
+                    end
+                end else if ((rd | wr) && ((wb_same_i && open_v[a_bank]) || req_q)) begin
+                    if ((wb_same_i && open_v[a_bank]) || hit_q) begin
+                        // open row: the command right away
+                        if (s_act[a_bank] >= C_RCD && (rd || s_rd >= C_RD)) begin
+                            SDRAM_BA     <= a_bank;
+                            SDRAM_A[10]  <= 1'b0;                  // no auto-precharge
+                            SDRAM_A[9:0] <= {1'b0, a_col};
+                            cycle <= 5'd1;
+                            busy  <= 1'b1;
+                            if (rd) begin
+                                {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_Read;
+                                SDRAM_DQM <= 2'b00;
+                                s_rd  <= 4'd1;
+                                state <= READ;
+                            end else begin
+                                {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_Write;
+                                SDRAM_DQM <= ~wb_sel_i;
+                                dq_out    <= wb_dat_i;
+                                dq_oen    <= 1'b1;
+                                s_wr  <= 4'd1;
+                                state <= WRITE;
+                            end
+                        end
+                    end else if (open_q) begin
+                        // another row is open in this bank: close it
+                        if (s_act[a_bank] >= C_RAS && s_wr >= C_WR && s_rd >= C_RD) begin
+                            {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_PreCharge;
+                            SDRAM_A[10] <= 1'b0;
+                            SDRAM_BA    <= a_bank;
+                            open_v[a_bank] <= 1'b0;
+                            s_pre[a_bank]  <= 4'd1;
+                        end
+                    end else if (s_pre[a_bank] >= C_RP && s_act[a_bank] >= C_RC &&
+                                 s_act_any >= C_RRD && s_ref >= C_RC) begin
+                        {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_BankActivate;
+                        SDRAM_BA <= a_bank;
+                        SDRAM_A  <= a_row;
+                        open_v[a_bank]   <= 1'b1;
+                        open_row[a_bank] <= a_row;
+                        s_act[a_bank]    <= 4'd1;
+                        s_act_any        <= 4'd1;
+                    end
+                end
+            end
+
+            // read: command at cycle 0, same data timing as the closed-page path
+            {READ, CAS+RD_OFF}: begin
+                wb_ack0 <= 1'b1;
+            end
+            {READ, CAS+RD_OFF+5'd1}: begin
+                wb_ack1 <= 1'b1;
+            end
+            {READ, CAS+RD_OFF+5'd2}: begin
+                busy  <= 1'b0;
+                state <= IDLE;
+            end
+
+            // write: command and data at cycle 0
+            {WRITE, 5'd1}: begin
+                dq_oen  <= 1'b1;
+                wb_ack0 <= 1'b1;
+            end
+            {WRITE, 5'd2}: begin
+                wb_ack1 <= 1'b1;
+                dq_oen  <= 1'b0;
+                busy    <= 1'b0;
+                state   <= IDLE;
+            end
+
+            {REFRESH, T_RC}: begin
+                state <= IDLE;
+                busy  <= 1'b0;
+            end
+            default: ;
+        endcase
+    end
+end
+
+end endgenerate
 
 
 //
