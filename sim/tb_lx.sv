@@ -227,6 +227,71 @@ module tb_lx;
         .sdram_refreshing(refreshing), .cpu_running(cpu_running), .cpu_halted(cpu_halted)
     );
 
+    // ---------------- Comprobacion de lecturas de SDRAM -----------------------
+    // Cada palabra que el controlador entrega (ack0 = direccion, ack1 = la
+    // siguiente de la rafaga, col ^ 1) se compara con el modelo.
+    int rd_bad = 0, rd_n = 0, wr_n = 0;
+    // video: datos que no llegan antes del siguiente stb_sync (se veria basura)
+    int v_under = 0, v_lat = 0, v_lat_max = 0;
+    always @(posedge dut.clk_pixel) begin
+        if ((dut.video_controller.vbuf.stb_sync1_i || dut.video_controller.vbuf.stb_sync2_i) &&
+            (dut.video_controller.vbuf.vmem_state == 2'b01 || dut.video_controller.vbuf.vmem_state == 2'b10) &&
+            $time > 64'd250_000_000) begin
+            v_under++;
+            if (v_under <= 10) $display("!! VIDEO sin datos a tiempo t=%0t estado=%0d arb=%0d sd=%0d", $time, dut.video_controller.vbuf.vmem_state, dut.video_controller.mem_arbiter.current_state, dut.sdram_ctrl.state);
+        end
+    end
+    int b_other = 0, b_ref = 0, b_idle = 0, b_rd = 0, nlong = 0;
+    always @(posedge dut.clk_system) begin
+        if (dut.video_controller.vbuf.vmem_req_o && !dut.video_controller.vbuf.vmem_ack1_i) begin
+            if (v_lat == 0) begin b_other = 0; b_ref = 0; b_idle = 0; b_rd = 0; end
+            if (dut.video_controller.mem_arbiter.current_state != 2'd1) b_other++;
+            else if (dut.sdram_ctrl.state == 3'd5) b_ref++;
+            else if (dut.sdram_ctrl.state == 3'd2) b_idle++;
+            else b_rd++;
+        end else if (v_lat > 24 && $time > 64'd250_000_000) begin
+            nlong++;
+            if (nlong <= 12) $display("!! VIDEO lenta %0d ciclos: otro maestro %0d, refresco %0d, IDLE (PRE/ACT/esperas) %0d, lectura %0d",
+                                      v_lat, b_other, b_ref, b_idle, b_rd);
+        end
+    end
+    always @(posedge dut.clk_system) begin
+        if ($time < 64'd250_000_000) v_lat <= 0;
+        else if (dut.video_controller.vbuf.vmem_req_o && !dut.video_controller.vbuf.vmem_ack1_i) v_lat <= v_lat + 1;
+        else begin if (v_lat > v_lat_max) v_lat_max <= v_lat; v_lat <= 0; end
+    end
+    int vlog_fd = 0;
+    initial if ($test$plusargs("vlog")) vlog_fd = $fopen("vram_wr.log", "w");
+    // memoria "esperada": lo que el controlador acepto escribir (en ack1)
+    logic [15:0] shadow [int unsigned];
+    always @(posedge dut.clk_system) begin
+        if (dut.sdram_ctrl.wb_ack0_o || dut.sdram_ctrl.wb_ack1_o) begin
+            if (dut.sdram_ctrl.wb_we_i && dut.sdram_ctrl.wb_ack1_o) begin
+                int unsigned k = dut.sdram_ctrl.wb_adr_i;
+                logic [15:0] w = shadow.exists(k) ? shadow[k] : (sdram.mem.exists(k) ? sdram.mem[k] : 16'h0000);
+                if (dut.sdram_ctrl.wb_sel_i[0]) w[7:0]  = dut.sdram_ctrl.wb_dat_i[7:0];
+                if (dut.sdram_ctrl.wb_sel_i[1]) w[15:8] = dut.sdram_ctrl.wb_dat_i[15:8];
+                shadow[k] = w;
+                wr_n++;
+                if (vlog_fd != 0 && dut.video_controller.mem_arbiter.saved_addr[23:14] == 10'h310)
+                    $fdisplay(vlog_fd, "%0t W st=%0d a=%06h d=%04h s=%b", $time,
+                              dut.video_controller.mem_arbiter.current_state,
+                              dut.video_controller.mem_arbiter.saved_addr, dut.sdram_ctrl.wb_dat_i, dut.sdram_ctrl.wb_sel_i);
+            end
+            if (!dut.sdram_ctrl.wb_we_i) begin
+                int unsigned k = dut.sdram_ctrl.wb_adr_i ^ (dut.sdram_ctrl.wb_ack1_o ? 1 : 0);
+                rd_n++;
+                if (sdram.mem.exists(k) && sdram.mem[k] !== dut.sdram_ctrl.wb_dat_o) begin
+                    rd_bad++;
+                    if (rd_bad <= 20)
+                        $display("!! LECTURA MAL t=%0t ack%0d adr=%06h leido=%04h memoria=%04h arb=%0d",
+                                 $time, dut.sdram_ctrl.wb_ack1_o, dut.sdram_ctrl.wb_adr_i,
+                                 dut.sdram_ctrl.wb_dat_o, sdram.mem[k], dut.video_controller.mem_arbiter.current_state);
+                end
+            end
+        end
+    end
+
     sdram_model sdram (
         .clk(~clk_system), .cke(sd_cke), .ncs(sd_ncs), .nras(sd_nras), .ncas(sd_ncas),
         .nwe(sd_nwe), .ba(sd_ba), .a(sd_a), .dqm(sd_dqm),
@@ -509,6 +574,24 @@ module tb_lx;
         end
         $display("== Bus: latencia maxima %0d ciclos de 54 MHz, %0d errores de bus", max_lat, n_err);
         $display("== SDRAM: %0d errores de protocolo/tiempos", sdram.errors);
+        $display("== SDRAM: %0d lecturas comprobadas, %0d mal", rd_n, rd_bad);
+        $display("== VIDEO: %0d veces sin datos a tiempo, latencia maxima %0d ciclos de 108 MHz", v_under, v_lat_max);
+        begin
+            int sb = 0;
+            foreach (shadow[k]) begin
+                logic [15:0] m = sdram.mem.exists(k) ? sdram.mem[k] : 16'hxxxx;
+                if (m !== shadow[k]) begin
+                    sb++;
+                    if (sb <= 20) $display("!! ESCRITURA PERDIDA adr=%06h esperado=%04h memoria=%04h", k, shadow[k], m);
+                end
+            end
+            $display("== SDRAM: %0d escrituras, %0d palabras distintas de lo esperado", wr_n, sb);
+            if (vlog_fd != 0) begin
+                int fd = $fopen("vram.bin", "wb");
+                for (int i = 0; i < 16384; i++) $fwrite(fd, "%c", peek(24'hC40000 + 24'(i)));
+                $fclose(fd); $fclose(vlog_fd);
+            end
+        end
         $finish;
     end
 

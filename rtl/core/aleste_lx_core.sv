@@ -1325,11 +1325,30 @@ end
 `ifdef CALYPSO
 wire refresh_go = refresh_req && (idle_cnt >= IDLE_MIN);
 `else
-// MiSTer: el controlador va con filas abiertas (OPEN_PAGE) y cierra las filas
-// y espera los tiempos el mismo antes del REFRESH, que ademas tiene prioridad.
-// No hace falta esperar ciclos en IDLE (con la GPU escribiendo seguido podria
-// no haberlos nunca).
-wire refresh_go = refresh_req;
+// MiSTer (OPEN_PAGE): el controlador cierra las filas y espera los tiempos el
+// mismo antes del REFRESH. Para no retrasar al video, el refresco va en los
+// huecos (IDLE sin peticion); se cuentan los pendientes (la SDRAM admite
+// retrasar hasta 8) y solo con 4 pendientes se fuerza aunque haya peticiones.
+// Darle prioridad siempre retrasaba lecturas del video mas alla de su plazo
+// (basura en pantalla).
+logic [2:0] ref_pend;
+logic       ref_tick, in_ref_q, refresh_go;
+always_ff @(posedge clk_system) begin
+    if (mem_reset) begin
+        ref_pend   <= '0;
+        in_ref_q   <= 1'b0;
+        refresh_go <= 1'b0;
+    end else begin
+        in_ref_q <= (sdram_state == 3'd5);
+        case ({ref_tick, (sdram_state == 3'd5) && !in_ref_q})
+            2'b10: if (ref_pend != 3'd7) ref_pend <= ref_pend + 3'd1;
+            2'b01: if (ref_pend != 3'd0) ref_pend <= ref_pend - 3'd1;
+            default: ;
+        endcase
+        refresh_go <= (ref_pend != 3'd0) && (sdram_state != 3'd5) &&
+                      (((sdram_state == 3'd2) && !video2mem_req) || ref_pend >= 3'd4);
+    end
+end
 `endif
 
 always_ff @(posedge clk_system) begin
@@ -1347,6 +1366,9 @@ always_ff @(posedge clk_system) begin
         end
     end
 end
+`ifndef CALYPSO
+assign ref_tick = (refresh_cnt == REFRESH_LAST);
+`endif
 
 assign sdram_refreshing = (sdram_state == 3'd5);
 
