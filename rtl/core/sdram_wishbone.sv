@@ -369,17 +369,31 @@ wire [COL_WIDTH-1:0] a_col  = addr[COL_WIDTH-1:0];
 // 108 MHz by 1.5 ns (arbiter -> compare -> SDRAM_A I/O register).
 logic hit_q, open_q, req_q, cmd_now;
 logic all_closed, pre_ok_all, ref_ok;
-// cmd_now: this edge issues PRECHARGE / ACTIVE / REFRESH from IDLE
+// Decisions in IDLE. pre_all_go, ref_go, pre_go and act_go only use the
+// controller's own registers and the registered flags (req_q, hit_q,
+// open_q); cmd_go also takes the arbiter's wb_same_i fast path. When
+// req_q is set, wb_same_i && open_v[bank] implies hit_q, so the fast path
+// never changes pre_go/act_go.
+logic pre_all_go, ref_go, cmd_go, pre_go, act_go, fast_hit, row_sel;
+assign fast_hit = wb_same_i && open_v[a_bank];
+assign row_sel  = req_q && !hit_q && !open_q && !wb_refresh_i;
 always_comb begin
-    cmd_now = 1'b0;
+    pre_all_go = 1'b0; ref_go = 1'b0; cmd_go = 1'b0; pre_go = 1'b0; act_go = 1'b0;
     if (state == IDLE) begin
-        if (wb_refresh_i)
-            cmd_now = (!all_closed && pre_ok_all) || (all_closed && ref_ok);
-        else if ((rd | wr) && req_q && !hit_q && !(wb_same_i && open_v[a_bank]))
-            cmd_now = open_q ? (s_act[a_bank] >= C_RAS && s_wr >= C_WR && s_rd >= C_RD)
-                             : (s_pre[a_bank] >= C_RP && s_act[a_bank] >= C_RC &&
-                                s_act_any >= C_RRD && s_ref >= C_RC);
+        if (wb_refresh_i) begin
+            pre_all_go = !all_closed && pre_ok_all;
+            ref_go     = all_closed && ref_ok;
+        end else if (rd | wr) begin
+            if (fast_hit || (req_q && hit_q))
+                cmd_go = (s_act[a_bank] >= C_RCD) && (rd || s_rd >= C_RD);
+            else if (req_q && open_q)
+                pre_go = (s_act[a_bank] >= C_RAS) && (s_wr >= C_WR) && (s_rd >= C_RD);
+            else if (req_q)
+                act_go = (s_pre[a_bank] >= C_RP) && (s_act[a_bank] >= C_RC) &&
+                         (s_act_any >= C_RRD) && (s_ref >= C_RC);
+        end
     end
+    cmd_now = pre_all_go || ref_go || pre_go || act_go;
 end
 
 always_comb begin
@@ -452,64 +466,58 @@ always @(posedge wb_clk_i) begin
             end
 
             {IDLE, 5'b?????}: begin
-                if (wb_refresh_i) begin
-                    if (!all_closed) begin
-                        if (pre_ok_all) begin
-                            {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_PreCharge;
-                            SDRAM_A[10] <= 1'b1;                    // all banks
-                            for (int i = 0; i < 4; i++)
-                                if (open_v[i]) s_pre[i] <= 4'd1;
-                            open_v <= 4'b0000;
-                        end
-                    end else if (ref_ok) begin
-                        {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_AutoRefresh;
-                        s_ref <= 4'd1;
-                        state <= REFRESH;
-                        cycle <= 5'd1;
-                        busy  <= 1'b1;
+                // Address, bank, mask and data go out every IDLE cycle; they
+                // only count with a command. Only ACTIVE (row) and PRECHARGE
+                // ALL (A10) change them, and those are decided from registered
+                // flags, so the arbiter -> fast path -> pins route only drives
+                // the command bits and dq_oen (108 MHz timing).
+                // row_sel only uses registers: when an ACTIVE goes out it is
+                // set; when a READ/WRITE goes out it is clear (req_q with a
+                // fast hit implies hit_q). A[12:11] carry the byte mask outside
+                // ACTIVE: on part of the MiSTer SDRAM modules the chip's DQM
+                // pins are wired to A11/A12 (the top level used to mux them
+                // after the command registers, a long route at 108 MHz).
+                SDRAM_BA  <= a_bank;
+                SDRAM_A   <= row_sel ? a_row
+                                     : {(wr ? ~wb_sel_i : 2'b00), pre_all_go, 1'b0, a_col};
+                SDRAM_DQM <= wr ? ~wb_sel_i : 2'b00;
+                dq_out    <= wb_dat_i;
+                if (pre_all_go) begin
+                    {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_PreCharge;
+                    for (int i = 0; i < 4; i++)
+                        if (open_v[i]) s_pre[i] <= 4'd1;
+                    open_v <= 4'b0000;
+                end else if (ref_go) begin
+                    {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_AutoRefresh;
+                    s_ref <= 4'd1;
+                    state <= REFRESH;
+                    cycle <= 5'd1;
+                    busy  <= 1'b1;
+                end else if (cmd_go) begin
+                    // open row: the command right away
+                    cycle <= 5'd1;
+                    busy  <= 1'b1;
+                    if (rd) begin
+                        {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_Read;
+                        s_rd  <= 4'd1;
+                        state <= READ;
+                    end else begin
+                        {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_Write;
+                        dq_oen <= 1'b1;
+                        s_wr  <= 4'd1;
+                        state <= WRITE;
                     end
-                end else if ((rd | wr) && ((wb_same_i && open_v[a_bank]) || req_q)) begin
-                    if ((wb_same_i && open_v[a_bank]) || hit_q) begin
-                        // open row: the command right away
-                        if (s_act[a_bank] >= C_RCD && (rd || s_rd >= C_RD)) begin
-                            SDRAM_BA     <= a_bank;
-                            SDRAM_A[10]  <= 1'b0;                  // no auto-precharge
-                            SDRAM_A[9:0] <= {1'b0, a_col};
-                            cycle <= 5'd1;
-                            busy  <= 1'b1;
-                            if (rd) begin
-                                {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_Read;
-                                SDRAM_DQM <= 2'b00;
-                                s_rd  <= 4'd1;
-                                state <= READ;
-                            end else begin
-                                {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_Write;
-                                SDRAM_DQM <= ~wb_sel_i;
-                                dq_out    <= wb_dat_i;
-                                dq_oen    <= 1'b1;
-                                s_wr  <= 4'd1;
-                                state <= WRITE;
-                            end
-                        end
-                    end else if (open_q) begin
-                        // another row is open in this bank: close it
-                        if (s_act[a_bank] >= C_RAS && s_wr >= C_WR && s_rd >= C_RD) begin
-                            {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_PreCharge;
-                            SDRAM_A[10] <= 1'b0;
-                            SDRAM_BA    <= a_bank;
-                            open_v[a_bank] <= 1'b0;
-                            s_pre[a_bank]  <= 4'd1;
-                        end
-                    end else if (s_pre[a_bank] >= C_RP && s_act[a_bank] >= C_RC &&
-                                 s_act_any >= C_RRD && s_ref >= C_RC) begin
-                        {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_BankActivate;
-                        SDRAM_BA <= a_bank;
-                        SDRAM_A  <= a_row;
-                        open_v[a_bank]   <= 1'b1;
-                        open_row[a_bank] <= a_row;
-                        s_act[a_bank]    <= 4'd1;
-                        s_act_any        <= 4'd1;
-                    end
+                end else if (pre_go) begin
+                    // another row is open in this bank: close it
+                    {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_PreCharge;
+                    open_v[a_bank] <= 1'b0;
+                    s_pre[a_bank]  <= 4'd1;
+                end else if (act_go) begin
+                    {SDRAM_nRAS, SDRAM_nCAS, SDRAM_nWE} <= CMD_BankActivate;
+                    open_v[a_bank]   <= 1'b1;
+                    open_row[a_bank] <= a_row;
+                    s_act[a_bank]    <= 4'd1;
+                    s_act_any        <= 4'd1;
                 end
             end
 

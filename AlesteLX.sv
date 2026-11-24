@@ -386,18 +386,16 @@ assign SDRAM_DQMH = sdram_dqm[1];
 
 // DQM por A[12:11]. En parte de los modulos de SDRAM de MiSTer las patas DQM
 // del chip van a las lineas A11/A12 (por eso los cores de MiSTer ponen
-// {SDRAM_DQMH, SDRAM_DQML} = SDRAM_A[12:11]). sdram_wishbone deja en A[12:11]
-// la fila de la orden ACTIVE durante READ/WRITE y las NOP siguientes, y en
-// esos modulos eso enmascararia bytes al azar (lecturas en alta impedancia y
-// escrituras perdidas). A[12:11] solo cuentan como direccion en ACTIVE (fila)
-// y en LOAD MODE; en el resto de ordenes no se usan, y ahi se pone la mascara
-// del controlador. Los modulos con DQM en sus propias patas reciben la misma
-// mascara por SDRAM_DQML/DQMH y no notan el cambio.
-//   ACTIVE    = nRAS 0, nCAS 1, nWE 1
-//   LOAD MODE = nRAS 0, nCAS 0, nWE 0
-wire sdram_row_cmd = ~SDRAM_nCS & ~SDRAM_nRAS & (SDRAM_nCAS == SDRAM_nWE);
+// {SDRAM_DQMH, SDRAM_DQML} = SDRAM_A[12:11]). A[12:11] solo cuentan como
+// direccion en ACTIVE (fila) y en LOAD MODE; en el resto de ordenes no se
+// usan, y el controlador (sdram_wishbone, OPEN_PAGE) pone ahi la mascara de
+// bytes. Los modulos con DQM en sus propias patas reciben la misma mascara por
+// SDRAM_DQML/DQMH y no notan el cambio.
 assign SDRAM_A[10:0]  = sdram_a[10:0];
-assign SDRAM_A[12:11] = sdram_row_cmd ? sdram_a[12:11] : {sdram_dqm[1], sdram_dqm[0]};
+// Con OPEN_PAGE el controlador ya pone la mascara en A[12:11] fuera de ACTIVE
+// (registrado: el multiplexor aqui, detras de los registros de orden, era una
+// ruta larga a 108 MHz).
+assign SDRAM_A[12:11] = sdram_a[12:11];
 
 // Reloj de la SDRAM: clk_sdram (108 MHz, salida 3 del PLL principal con su
 // propio desfase) sacado por un registro DDR del pin, para que tenga el mismo
