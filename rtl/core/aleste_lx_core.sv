@@ -198,6 +198,11 @@ logic [7:0]  z80_dat_out, z80_dat_in;
 logic        cfg_native;
 logic        cpc_int, int_ack;
 logic        lx_int;                    // INT del PIC del modo LX
+logic        lx_int_block;              // WINDOW del temporizador: tapa la INT
+logic [7:0]  lx_vector;                 // VECTOR del PIC (para IM 2)
+logic        cpu_sup;                   // la CPU esta en modo supervisor
+logic        tmr_cs, tmr_we;            // ciclo de E/S de la CPU a F4h-F7h (temporizador)
+logic [7:0]  tmr_adr, tmr_wdat;
 logic        lx_mode;                   // perifericos del Aleste LX (siempre)
 logic [1:0]  cpc_mode;
 logic        z80_halt;
@@ -226,16 +231,22 @@ z80_system z80_sys (
     .dbg_ack_o(),
 
     .nmi_req_i(ms_nmi),                 // MagicSound: fin de bloque de DMA
-    .int_req_i((lx_mode & cfg_native) ? lx_int : cpc_int),   // nativo: PIC del Aleste LX (rtl/core/lx/lx_sys.sv); legacy (520EX/CPC): la del Gate Array
+    .int_req_i((lx_mode & cfg_native) ? (lx_int & ~lx_int_block) : cpc_int),   // nativo: PIC del Aleste LX (rtl/core/lx/lx_sys.sv); legacy (520EX/CPC): la del Gate Array
     .mapmod_i(extport[2]),
     .cpu_4mhz_i(~cfg_native),     // modo CPC: Z80 a 4 MHz, como el 520EX
     .cpu_turbo_i(cpu_turbo),      // OSD: 4 / 8 (turbo del 520EX) / 16 MHz
     .int_ack_o(int_ack),
+    .int_vec_i((lx_mode & cfg_native) ? lx_vector : 8'hFF),   // IM 2: VECTOR del PIC; CPC: FF (bus libre)
+    .tmr_cs_o(tmr_cs),
+    .tmr_we_o(tmr_we),
+    .tmr_adr_o(tmr_adr),
+    .tmr_dat_o(tmr_wdat),
+    .tmr_dat_i(lx_dat),
     .system_status_i(8'h00),
 
     .graphic_mode(cpc_mode),
     .irq_control(),
-    .supervisor_mode_o(),
+    .supervisor_mode_o(cpu_sup),
     .native_mode_o(cfg_native),
 
     .debug_z80_reset_o(),
@@ -1028,20 +1039,31 @@ wire [7:0] rtcn_dat = sys_adr[0] ? cmos_dout : {2'b00, rtcn_idx};
 wire lx_cs = lx_mode & ~legacy & (sys_adr[23:7] == 17'h1FE00) & ~rtcn_cs;
 logic [1:0] lx_vbl_s;                         // VBlank del video nativo (clk_pixel) -> clk_bus
 always_ff @(posedge clk_bus) lx_vbl_s <= {lx_vbl_s[0], vga_vblank};
+// PIC (pagina MMIO 0, por el bus) y temporizador (puertos F4h-F6h, por la
+// MMU) en un solo modulo, como en la rev 6 de hww: adr_i 00-1F es el PIC y
+// F4-F6 el temporizador. La CPU solo hace un ciclo a la vez, asi que los dos
+// caminos no coinciden; el ack del temporizador no va al bus.
+wire        lx_bus = bus_req & lx_cs;
+wire        lx_ack_raw;
 lx_sys lx_system (
     .clk(clk_bus),
     .rst(cpu_reset),
-    .cs_i(bus_req & lx_cs),
-    .we_i(sys_we),
-    .adr_i(sys_adr[6:0]),
-    .dat_i(sys_dat),
+    .cs_i(lx_bus | tmr_cs),
+    .we_i(tmr_cs ? tmr_we : sys_we),
+    .adr_i(tmr_cs ? tmr_adr : {1'b0, sys_adr[6:0]}),
+    .dat_i(tmr_cs ? tmr_wdat : sys_dat),
     .dat_o(lx_dat),
-    .ack_o(lx_ack),
+    .ack_o(lx_ack_raw),
+    .sup_i(cpu_sup),
     //       15..8   7 INPUT  6 (timer)  5 GPU     4 LEGACY  3 AUDIO  2 VBlank     1 DMA  0 STORAGE
     .irq_i({8'd0,   kin_irq,        1'b0,      gpu_irq, cpc_int,  ms2_irq, lx_vbl_s[1], dma_irq, fdc_int}),
+    .int_ack_i(int_ack),
     .int_o(lx_int),
-    .int_vec_o()
+    .vector_o(lx_vector),
+    .int_block_o(lx_int_block),
+    .nmi_block_o()
 );
+assign lx_ack = lx_ack_raw & lx_bus;
 
 // LX-GPU de hww (lx/aleste-xi-bios/deps/lx-gpu-rtl) en la pagina MMIO 3
 // (FF0180-FF01FF): nucleo y registros a 54 MHz, puerto del arbitro a 108
@@ -1163,6 +1185,8 @@ assign ms2_out_r = '0;
 assign ms2_irq = 1'b0;
 assign lx_dat = 8'hFF;
 assign lx_ack = 1'b0;
+assign lx_int_block = 1'b0;
+assign lx_vector = 8'hFF;
 assign lx_int = 1'b0;
 `endif
 

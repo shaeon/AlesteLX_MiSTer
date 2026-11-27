@@ -57,12 +57,16 @@ concreto, interfaz en registros para ensamblador y envoltorios en C
 **Interrupciones** (`drivers/int`, `int.h`): `int_install()` pone IM 1 con
 todo enmascarado; `int_set_handler(linea, rutina)`, `int_enable(linea)`,
 `int_disable(linea)`. El despachador guarda los registros y la página MMIO
-(puerto F1h, que se puede leer), borra las líneas que va a atender y llama a
-la rutina de cada una. Las rutinas en C son funciones normales `void f(void)`.
+(puerto F1h, que se puede leer) y repite CLAIM → rutina (A = línea) →
+COMPLETE hasta que CLAIM no da ninguna línea. Las rutinas en C son funciones
+normales `void f(void)`.
 
 **Temporizador** (`drivers/timer`, `timer.h`): `timer_get_ms()` y
-`timer_delay_ms()` con el contador de milisegundos del hardware (sin
-interrupciones); `timer_set_periodic(periodo_us, rutina)` por la línea 6.
+`timer_delay_ms()` cuentan los milisegundos en software a partir de RT (16
+bits a 1 MHz); el driver rearma el comparador cada 30 ms como mucho (línea 6)
+para no perder vueltas de RT, y eso mismo hace de
+`timer_set_periodic(periodo_us, rutina)` (periodos hasta 65535 µs). Se instala
+después de `int_install()`.
 
 **DMA** (`drivers/dma`, `dma.h`): `dma_start(&peticion)`, `dma_wait()`,
 `dma_busy()`, y las ayudas `dma_copy`, `dma_fill` y `dma_rect` (rectángulos
@@ -365,7 +369,6 @@ BIOS, C40000 la memoria de vídeo del modo 16k1b.
 | Página | Dirección | Dispositivo | Fichero |
 |---|---|---|---|
 | 0 | FF0000-FF001F | PIC | rtl/core/lx/lx_sys.sv |
-| 0 | FF0040-FF005F | Temporizador del sistema | rtl/core/lx/lx_sys.sv |
 | 0 | FF0060-FF0061 | Reloj MC146818 (índice, dato) | rtl/core/cpc/rtc146818.sv |
 | 2 | FF0100-FF011F | Paleta | (vídeo del LX) |
 | 2 | FF0120-FF013F | CRTC | (vídeo del LX) |
@@ -375,50 +378,57 @@ BIOS, C40000 la memoria de vídeo del modo 16k1b.
 | 8 | FF0400-FF047F | Teclado | rtl/core/lx/lx_input.sv |
 | 9 | FF0480-FF04FF | Disquetera (uPD765) | rtl/core/cpc/u765.sv |
 
-### Temporizador de 1 MHz (puertos F4h-F7h, en la MMU)
+### Temporizador del sistema rev 6 (puertos F4h-F6h)
 
-Contador libre de 32 bits a 1 MHz (54 MHz / 54), puesto a 0 en el reset; el
-diseño es de hww. Lo contesta la propia MMU (`rtl/core/mmu_native.sv`), como
-F0h/F1h, sin ir al bus ni cambiar de página MMIO, y se lee también en modo
-usuario con el bloqueo de puertos (bit 4 del control). Solo lectura; en legacy
-no existe.
+Diseño de hww (`rtl/core/lx/lx_sys.sv`; aleste-xi-doc, `17-systime-r6`). RT
+es un contador libre de 16 bits a 1 MHz (vuelta cada 65,5 ms), y COMPARE un
+objetivo absoluto: cuando RT lo alcanza salta la línea 6 del PIC, una sola
+vez por cada objetivo escrito. La MMU pasa los puertos F4h-F7h a `lx_sys` en
+modo nativo (F7h lee FFh); en legacy no existen.
 
-| Puertos | Bits | Paso | Vuelta |
-|---|---|---|---|
-| F4h/F5h | 15-0 | 1 µs | 65,5 ms |
-| F5h/F6h | 23-8 | 256 µs | 16,8 s |
-| F6h/F7h | 31-16 | 65,5 ms | 71,6 min |
+| Puerto | Lectura | Escritura (solo supervisor) |
+|---|---|---|
+| F4h | copia RT en la instantánea del modo (supervisor o usuario) y da su byte bajo | byte bajo de COMPARE; abre WINDOW |
+| F5h | byte alto de la instantánea del modo | byte alto: escribe COMPARE, ARMED = ENABLE = 1, FIRED = 0, cierra WINDOW |
+| F6h | bit 4 FIRED, 3 DUE, 2 WINDOW, 1 ARMED, 0 ENABLE | bit 0 ENABLE |
 
-**Copia de los 32 bits.** Una lectura de F4h-F7h copia el contador entero, y
-las siguientes leen esa copia mientras lleguen con **como mucho tres M1**
-desde la anterior: una instrucción en medio, contando el prefijo ED de
-`IN r,(C)`. Así `LD C,0F4h / IN L,(C) / INC C / IN H,(C) / INC C / IN E,(C) /
-INC C / IN D,(C)` deja en DEHL un valor coherente aunque el contador cambie a
-mitad. Con cuatro M1 o más (o una interrupción entre las lecturas), la
-siguiente lectura hace una copia nueva; para leer varios bytes sin que se
-cuele una interrupción, `DI`. Un intervalo de menos de 65 ms es la resta de
-dos lecturas de F4h/F5h (`SBC HL,DE`), aunque el contador haya dado la vuelta.
+- **Lectura coherente:** `LD C,0F4h / IN L,(C) / INC C / IN H,(C)`. Cada modo
+  tiene su instantánea, así que una rutina de supervisor no estropea el par de
+  un programa de usuario. El código de supervisor que comparte la instantánea
+  con la rutina del temporizador de la ROM lee el par con `DI`.
+- **WINDOW:** entre la escritura de F4h y la de F5h no llega INT al Z80 (el NMI
+  sí); se cierra sola a los 32 µs.
+- **Objetivo:** como mucho 32767 µs por delante (la comparación es con signo
+  de 16 bits). Un objetivo ya pasado salta al escribir F5h.
+- **FIRED:** el objetivo pide la interrupción una vez; aunque RT vuelva a pasar
+  por él 65,5 ms después, no salta otra vez hasta el siguiente F5h.
 
-Prueba unitaria: `test_timer` en `sim/unit/mmu_native`. En LX-DOS, `TIMTEST`
-(aleste-xi-bios, `dos/test/sys/timtest.asm`): 100 ms del temporizador del
-sistema son 186A0h µs, la copia se mantiene con un NOP en medio y se renueva
-con ocho, y en modo usuario con el bloqueo lee un valor entre los dos del
-supervisor.
+Pruebas: `test_timer` en `sim/unit/mmu_native` (el paso de F4h-F7h a
+`lx_sys`), `pictest` (abajo) y, en LX-DOS, `TIMTEST` (aleste-xi-bios,
+`dos/test/sys/timtest.asm`: ritmo frente al VBlank, instantáneas por modo,
+comparador, una sola vez y objetivo pasado).
 
-### PIC (página 0, 00-08)
+### PIC v2 (página 0, 00-0C)
 
-Registros como en `wb_z80_pic.sv` de hww, en IM 1 (la CPU va a 0038h):
+Diseño de hww (aleste-xi-doc, `12-pic-r2`), en IM 1 (la CPU va a 0038h). En
+el acuse de la interrupción, el core pone VECTOR en el bus (IM 2; FFh = RST
+38h en IM 0).
 
 | Puerto | | |
 |---|---|---|
-| 00/01 | RW | máscara (1 = habilitada) |
-| 02 | RW | vector base para IM 2 |
-| 03/04 | R | pendientes y habilitadas |
-| 05/06 | R | pendientes |
-| 07/08 | W | 1 = borra el pendiente |
+| 00 | W (supervisor) | COMMAND: bit 7 = 0: orden en los bits 6-4 y línea en los 3-0 (1 COMPLETE, 2 ENABLE, 3 DISABLE, 4 CLEAR_PENDING, 5 CLEAR_REPEAT, 6 CLEAR_BOTH); bit 7 = 1: prioridad (bits 6-4) de la línea |
+| 01 | R | CLAIM: bit 7 válida, bit 6 REPEAT, bits 3-0 línea; la pasa a servicio |
+| 02 | RW | VECTOR (escritura solo supervisor) |
+| 03/04 | R | PENDING |
+| 05/06 | R | REPEAT (otro flanco antes de atenderla) |
+| 07/08 | R | IN_SERVICE |
+| 09/0A | R | ENABLE |
+| 0B/0C | R | pendientes, habilitadas y fuera de servicio (las que piden INT) |
 
-Las líneas se capturan por flanco de subida; INT se mantiene mientras haya
-alguna pendiente y habilitada, así que el manejador tiene que borrarla.
+Las líneas se capturan por flanco de subida (aunque estén deshabilitadas).
+INT se mantiene mientras haya alguna pendiente, habilitada y fuera de
+servicio. CLAIM da la de más prioridad (a igual prioridad, la de número
+menor), borra su pendiente y la pone en servicio hasta el COMPLETE.
 
 | Línea | Fuente |
 |---|---|
@@ -582,7 +592,7 @@ a 48 kHz) y vuelca un cuadro. ROMs de prueba en `lx/test/` (pasmo):
 | MSXTEST (`dos/test/msxtest.asm`) | fecha y hora del reloj, 1Bh, bloques 26h/27h (escribe 300, lee 500: fin de fichero y 300 leídos, datos iguales) y sector absoluto 2Fh correctos |
 | LX-DOS (`sd/LXDOS.DSK`) | arranca; HELLO (consola, BIOS, argumentos) y FILETEST (crear, escribir, cerrar, abrir, leer, renombrar, buscar y borrar) correctos; el disco queda coherente (`+dsk_out=`) |
 | BIOS LX | consola, pitido, órdenes tecleadas; PLAY: melodía E4-E4-F4-G4 y bajo C3/G2 en la salida de la MS2 (`+pcm=fichero` guarda el audio) |
-| pictest | 59 interrupciones del temporizador en 60 ms, 4 VBlank |
+| pictest | PIC v2 (CLAIM/COMPLETE) y comparador rearmado cada 1000 µs: 59 interrupciones del temporizador en 60 ms, 4 VBlank |
 | ms2test | onda cuadrada a 187,5 Hz, ±4064, 7 fines de muestra y 11 ticks de 300 Hz en 40 ms |
 | DIR y MOD SLL1.STM con `mag-player.dsk` (`+dsk=`) | lista los 10 ficheros; carga SLL1.STM (82 KB, 169 sectores) y la toca |
 | MOD (`lx/test/LXDEMO.MOD`, de `tools/make_test_mod.py` de la BIOS) | `+mod=` lo carga como el OSD; MOD toca la melodía (E4, F4) y el bajo (C3), con la posición y la fila en la línea de estado |

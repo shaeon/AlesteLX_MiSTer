@@ -38,6 +38,13 @@ module z80_system (
     input  logic        cpu_4mhz_i,         // 1: Z80 a 4 MHz (modo CPC) - tools/gen_rtl.py
     input  logic [1:0]  cpu_turbo_i,        // modo CPC: 0 4 MHz, 1 8 MHz (turbo del 520EX), 2-3 16 MHz
     output logic        int_ack_o,          // M1 + IORQ: reconocimiento de INT - tools/gen_rtl.py
+    input  logic [7:0]  int_vec_i,          // dato en el bus durante el reconocimiento de INT (IM 2 / IM 0)
+    // Temporizador del sistema (lx_sys, puertos F4h-F7h del modo nativo)
+    output logic        tmr_cs_o,
+    output logic        tmr_we_o,
+    output logic [7:0]  tmr_adr_o,
+    output logic [7:0]  tmr_dat_o,
+    input  logic [7:0]  tmr_dat_i,
 
     // System status
     input logic  [7:0]  system_status_i,
@@ -387,6 +394,9 @@ module z80_system (
         .cpu_dout(z80_di_native_mmu),     // z80 read
         .cpu_clock_conf(z80_clock_conf),
         .cpu_mmu_access_o(native_mmu_access),
+        .tmr_cs_o(tmr_cs_o),
+        .tmr_we_o(tmr_we_o),
+        .tmr_dat_i(tmr_dat_i),
  
         .m_wb_cyc_o(native_mmu_cyc),
         .m_wb_stb_o(native_mmu_stb),
@@ -417,8 +427,14 @@ module z80_system (
     // Z80 DATA INPUT
     // =========================================================================
     // Даём данные CPU когда они защёлканы и валидны
+    assign tmr_adr_o = z80_a[7:0];
+    assign tmr_dat_o = z80_do;
+
     always_comb begin
-        if (native_mmu_access) begin
+        if (~z80_m1_n & ~z80_iorq_n) begin
+            // Reconocimiento de INT: el vector del PIC (IM 2) o FF (RST 38h en IM 0)
+            z80_di = int_vec_i;
+        end else if (native_mmu_access) begin
             // Данные от MMU (для внутренних регистров MMU)
             z80_di = z80_di_native_mmu;
         end else if (legacy_mmu_access) begin
