@@ -64,6 +64,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE lx/aleste-xi-bios/deps/lx-gpu-rtl
 set_global_assignment -name SYSTEMVERILOG_FILE lx/aleste-xi-bios/deps/lx-gpu-rtl/rtl/ch_addr_gen.sv
 set_global_assignment -name SYSTEMVERILOG_FILE lx/aleste-xi-bios/deps/lx-gpu-rtl/rtl/ch_blender.sv
 set_global_assignment -name SYSTEMVERILOG_FILE lx/aleste-xi-bios/deps/lx-gpu-rtl/rtl/ch_cache.sv
+set_global_assignment -name SYSTEMVERILOG_FILE lx/aleste-xi-bios/deps/lx-gpu-rtl/rtl/ch_pixel_alu.sv
 set_global_assignment -name SYSTEMVERILOG_FILE lx/aleste-xi-bios/deps/lx-gpu-rtl/rtl/ch_top.sv
 set_global_assignment -name SYSTEMVERILOG_FILE lx/aleste-xi-bios/deps/lx-gpu-rtl/rtl/host_if.sv
 set_global_assignment -name SYSTEMVERILOG_FILE lx/aleste-xi-bios/deps/lx-gpu-rtl/rtl/gpu_top.sv

@@ -23,7 +23,7 @@ H       := $(ROOT)/rtl/hww/src
 G       := $(ROOT)/lx/aleste-xi-bios/deps/lx-gpu-rtl
 GPU_SRCS := $(G)/rtl/core_alu.sv $(G)/rtl/core_regfile.sv $(G)/rtl/core_cond.sv \
            $(G)/rtl/core_fetch.sv $(G)/rtl/core_rom.sv $(G)/rtl/ch_addr_gen.sv $(G)/rtl/ch_blender.sv \
-           $(G)/rtl/ch_cache.sv $(G)/rtl/ch_top.sv $(G)/rtl/host_if.sv $(G)/rtl/gpu_top.sv
+           $(G)/rtl/ch_cache.sv $(G)/rtl/ch_pixel_alu.sv $(G)/rtl/ch_top.sv $(G)/rtl/host_if.sv $(G)/rtl/gpu_top.sv
 FLAGS   := --binary --timing -j 0 -Wno-fatal -Wno-lint -Wno-style -Wno-TIMESCALEMOD \
            -Wno-MULTIDRIVEN -Wno-UNOPTFLAT -Wno-INITIALDLY \
            --top-module tb_lx -Mdir obj -DALESTE_LX -I$(G) $(DEFS)
